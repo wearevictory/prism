@@ -2273,12 +2273,17 @@
     const t = {
         image: "",
         alt: "Lady Liberty in crystal glass, holding a basketball",
-        layout: { size: 0.58, x: 0.5, y: 0.37, maxWidth: 0.8 },
+        layout: {
+          size: 0.6,
+          x: 0.5,
+          y: 0.46,
+          maxWidth: 0.8,
+        },
         aurora: {
-          bg: "conic",
+          bg: "splotch",
           bgPal: "crystal",
-          bgInt: 55,
-          bgDrift: 0.6,
+          bgInt: 27,
+          bgDrift: 2.7,
           bgSweep: 18,
           bgSpread: 210,
           bgFeather: 34,
@@ -2288,39 +2293,39 @@
           bgCentre: 55,
           bgEdge: 15,
           bgHue: 0,
-          bgSat: 100,
+          bgSat: 50,
           bgLight: 100,
-          grain: 22,
-          letterGlow: 50,
-          bloom: 45,
+          grain: 15,
+          letterGlow: 27,
+          bloom: 30,
         },
         sparkle: {
-          glints: 52,
-          glintSize: 95,
-          glintStr: 85,
-          glintRate: 0.45,
-          warmth: 72,
-          dust: 90,
+          glints: 4,
+          glintSize: 27,
+          glintStr: 100,
+          glintRate: 0.6,
+          warmth: 27,
+          dust: 100,
           dustStr: 55,
           flares: 6,
-          flareStr: 42,
-          ghosts: 3,
+          flareStr: 15,
+          ghosts: 0,
           ghostStr: 22,
         },
         statue: {
-          palette: "prism",
+          palette: "shard",
           light: 1,
           tint: 0.08,
           clarity: 0.4,
-          speed: 0.22,
-          flow: 1.15,
-          flowScale: 1.5,
+          speed: 0.01,
+          flow: 0.4,
+          flowScale: 1,
           scale: 2.1,
           sharp: 2.6,
           disp: 0.45,
           edge: 0.75,
-          glitter: 0.45,
-          gsize: 20,
+          glitter: 0.72,
+          gsize: 27,
           twinkle: 0.7,
           grain: 0.015,
           quality: 2,
@@ -2395,13 +2400,10 @@
           return r;
         },
         l = s("div", "pl-scene"),
-        c =
-          !(o && o.scene) && s("canvas", "pl-back", { "aria-hidden": "true" }),
-        h = !(o && o.scene) && s("div", "pl-grain", { "aria-hidden": "true" }),
-        u =
-          !(o && o.scene) && s("canvas", "pl-light", { "aria-hidden": "true" }),
-        d =
-          !(o && o.scene) && s("canvas", "pl-glow", { "aria-hidden": "true" }),
+        c = s("canvas", "pl-back", { "aria-hidden": "true" }),
+        h = s("div", "pl-grain", { "aria-hidden": "true" }),
+        u = s("canvas", "pl-light", { "aria-hidden": "true" }),
+        d = s("canvas", "pl-glow", { "aria-hidden": "true" }),
         g =
           existing ||
           s("img", "pl-img", {
@@ -2410,12 +2412,12 @@
             fetchpriority: "high",
           }),
         f = s("canvas", "pl-statue", { "aria-hidden": "true" }),
-        m =
-          !(o && o.scene) && s("canvas", "pl-front", { "aria-hidden": "true" });
+        m = s("canvas", "pl-front", { "aria-hidden": "true" });
       l.setAttribute("aria-hidden", "true");
       l.style.pointerEvents = "none";
       if (existing) {
-        l.append(...[c, h, u, d, f, m].filter(Boolean));
+        if (o && o.scene) l.append(u, d, f, m);
+        else l.append(c, h, u, d, f, m);
         l.style.visibility = "hidden";
         r.append(l);
       } else {
@@ -2505,20 +2507,20 @@
                   (function (t) {
                     w();
                     try {
-                      p.engine =
-                        o && o.scene
-                          ? o.scene.start(t, g)
-                          : window.createLightEngine({
-                              settings: v(),
-                              stage: r,
-                              back: c,
-                              light: u,
-                              glow: d,
-                              front: m,
-                              grain: h,
-                              img: t,
-                              layout: (t, e) => b(t, e),
-                            });
+                      p.engine = window.createLightEngine({
+                        settings: Object.assign(
+                          v(),
+                          o && o.scene ? { bg: "none", grain: 0 } : {},
+                        ),
+                        stage: r,
+                        back: c,
+                        light: u,
+                        glow: d,
+                        front: m,
+                        grain: h,
+                        img: t,
+                        layout: (t, e) => b(t, e),
+                      });
                     } catch (t) {
                       console.warn(
                         "Prism Liberty: light engine unavailable",
@@ -2572,7 +2574,7 @@
       mount: r,
       DEFAULTS: t,
       LOCKED: e,
-      version: "1.2.0",
+      version: "1.2.1",
       scene: mountScene,
     };
     function mountScene(options = {}) {
@@ -2588,7 +2590,9 @@
       if (!host) throw new Error("Prism Liberty: hero element not found");
       if (host.__prismScene) return host.__prismScene;
       const images = Array.from(
-        host.querySelectorAll(options.selector || "img[data-prism]"),
+        host.querySelectorAll(
+          options.selector || "#prism-image, img[data-prism]",
+        ),
       );
       if (!images.length)
         throw new Error("Prism Liberty: no marked images found");
@@ -2619,7 +2623,7 @@
         );
         element.className = "pl-" + name;
         layers[name] = element;
-        layer.appendChild(element);
+        if (name === "back" || name === "grain") layer.appendChild(element);
       }
       stage.appendChild(layer);
       host.prepend(stage);
@@ -2628,51 +2632,23 @@
         stage,
         engine: null,
         instances: [],
-        start(texture, image) {
-          if (this.engine || image !== images[0]) return this.engine;
-          // The first marked image anchors the shared lighting.
-          const layout = () => {
-            const rect = image.getBoundingClientRect();
-            const area = stage.getBoundingClientRect();
-            const sx = area.width / stage.clientWidth || 1;
-            const sy = area.height / stage.clientHeight || 1;
-            return {
-              x: (rect.left - area.left) / sx,
-              y: (rect.top - area.top) / sy,
-              w: rect.width / sx,
-              h: rect.height / sy,
-            };
-          };
+        start() {
+          if (this.engine) return this.engine;
           this.engine = window.createLightEngine({
             ...layers,
             stage,
-            img: texture,
-            layout,
-            settings: Object.assign(
-              {},
-              t.aurora,
-              options.aurora,
-              t.sparkle,
-              options.sparkle,
-              e,
-            ),
+            settings: Object.assign({}, t.aurora, options.aurora, e, {
+              subject: "none",
+              glints: 0,
+              dust: 0,
+              flares: 0,
+              ghosts: 0,
+              streaks: 0,
+              slices: 0,
+              letterGlow: 0,
+              bloom: 0,
+            }),
           });
-          let scheduled = false;
-          const update = () => {
-            if (scheduled) return;
-            scheduled = true;
-            requestAnimationFrame(() => {
-              scheduled = false;
-              this.engine.relayout();
-            });
-          };
-          new ResizeObserver(update).observe(image);
-          window.addEventListener("resize", update, { passive: true });
-          if (mode === "viewport")
-            window.addEventListener("scroll", update, {
-              passive: true,
-              capture: true,
-            });
           return this.engine;
         },
       };
@@ -2683,6 +2659,11 @@
         } catch (error) {
           console.warn("Prism Liberty: image mount unavailable", error);
         }
+      }
+      try {
+        scene.start();
+      } catch (error) {
+        console.warn("Prism Liberty: atmosphere unavailable", error);
       }
       return scene;
     }
