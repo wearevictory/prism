@@ -2395,10 +2395,13 @@
           return r;
         },
         l = s("div", "pl-scene"),
-        c = s("canvas", "pl-back", { "aria-hidden": "true" }),
-        h = s("div", "pl-grain", { "aria-hidden": "true" }),
-        u = s("canvas", "pl-light", { "aria-hidden": "true" }),
-        d = s("canvas", "pl-glow", { "aria-hidden": "true" }),
+        c =
+          !(o && o.scene) && s("canvas", "pl-back", { "aria-hidden": "true" }),
+        h = !(o && o.scene) && s("div", "pl-grain", { "aria-hidden": "true" }),
+        u =
+          !(o && o.scene) && s("canvas", "pl-light", { "aria-hidden": "true" }),
+        d =
+          !(o && o.scene) && s("canvas", "pl-glow", { "aria-hidden": "true" }),
         g =
           existing ||
           s("img", "pl-img", {
@@ -2407,11 +2410,12 @@
             fetchpriority: "high",
           }),
         f = s("canvas", "pl-statue", { "aria-hidden": "true" }),
-        m = s("canvas", "pl-front", { "aria-hidden": "true" });
+        m =
+          !(o && o.scene) && s("canvas", "pl-front", { "aria-hidden": "true" });
       l.setAttribute("aria-hidden", "true");
       l.style.pointerEvents = "none";
       if (existing) {
-        l.append(c, h, u, d, f, m);
+        l.append(...[c, h, u, d, f, m].filter(Boolean));
         l.style.visibility = "hidden";
         r.append(l);
       } else {
@@ -2501,17 +2505,20 @@
                   (function (t) {
                     w();
                     try {
-                      p.engine = window.createLightEngine({
-                        settings: v(),
-                        stage: r,
-                        back: c,
-                        light: u,
-                        glow: d,
-                        front: m,
-                        grain: h,
-                        img: t,
-                        layout: (t, e) => b(t, e),
-                      });
+                      p.engine =
+                        o && o.scene
+                          ? o.scene.start(t, g)
+                          : window.createLightEngine({
+                              settings: v(),
+                              stage: r,
+                              back: c,
+                              light: u,
+                              glow: d,
+                              front: m,
+                              grain: h,
+                              img: t,
+                              layout: (t, e) => b(t, e),
+                            });
                     } catch (t) {
                       console.warn(
                         "Prism Liberty: light engine unavailable",
@@ -2565,9 +2572,129 @@
       mount: r,
       DEFAULTS: t,
       LOCKED: e,
-      version: "1.1.0",
+      version: "1.2.0",
+      scene: mountScene,
     };
-    const o = () =>
+    function mountScene(options = {}) {
+      const mode = options.mode || "hero";
+      if (mode !== "hero" && mode !== "viewport")
+        throw new Error('Prism Liberty: mode must be "hero" or "viewport"');
+      const host =
+        mode === "viewport"
+          ? document.body
+          : typeof options.hero === "string"
+            ? document.querySelector(options.hero)
+            : options.hero;
+      if (!host) throw new Error("Prism Liberty: hero element not found");
+      if (host.__prismScene) return host.__prismScene;
+      const images = Array.from(
+        host.querySelectorAll(options.selector || "img[data-prism]"),
+      );
+      if (!images.length)
+        throw new Error("Prism Liberty: no marked images found");
+      if (images.some((image) => image.__prism))
+        throw new Error(
+          "Prism Liberty: initialize the scene before mounting its images",
+        );
+      const stage = document.createElement("div");
+      stage.setAttribute("data-prism-liberty", "");
+      stage.setAttribute("data-prism-existing", "");
+      stage.setAttribute("aria-hidden", "true");
+      Object.assign(stage.style, {
+        position: mode === "viewport" ? "fixed" : "absolute",
+        inset: "0",
+        pointerEvents: "none",
+        overflow: "hidden",
+        zIndex: "-1",
+      });
+      if (mode === "hero" && getComputedStyle(host).position === "static")
+        host.style.position = "relative";
+      host.style.isolation = "isolate";
+      const layer = document.createElement("div");
+      layer.className = "pl-scene";
+      const layers = {};
+      for (const name of ["back", "light", "glow", "front", "grain"]) {
+        const element = document.createElement(
+          name === "grain" ? "div" : "canvas",
+        );
+        element.className = "pl-" + name;
+        layers[name] = element;
+        layer.appendChild(element);
+      }
+      stage.appendChild(layer);
+      host.prepend(stage);
+      const scene = {
+        mode,
+        stage,
+        engine: null,
+        instances: [],
+        start(texture, image) {
+          if (this.engine || image !== images[0]) return this.engine;
+          // The first marked image anchors the shared lighting.
+          const layout = () => {
+            const rect = image.getBoundingClientRect();
+            const area = stage.getBoundingClientRect();
+            const sx = area.width / stage.clientWidth || 1;
+            const sy = area.height / stage.clientHeight || 1;
+            return {
+              x: (rect.left - area.left) / sx,
+              y: (rect.top - area.top) / sy,
+              w: rect.width / sx,
+              h: rect.height / sy,
+            };
+          };
+          this.engine = window.createLightEngine({
+            ...layers,
+            stage,
+            img: texture,
+            layout,
+            settings: Object.assign(
+              {},
+              t.aurora,
+              options.aurora,
+              t.sparkle,
+              options.sparkle,
+              e,
+            ),
+          });
+          let scheduled = false;
+          const update = () => {
+            if (scheduled) return;
+            scheduled = true;
+            requestAnimationFrame(() => {
+              scheduled = false;
+              this.engine.relayout();
+            });
+          };
+          new ResizeObserver(update).observe(image);
+          window.addEventListener("resize", update, { passive: true });
+          if (mode === "viewport")
+            window.addEventListener("scroll", update, {
+              passive: true,
+              capture: true,
+            });
+          return this.engine;
+        },
+      };
+      host.__prismScene = scene;
+      for (const image of images) {
+        try {
+          scene.instances.push(r(image, { ...options, scene }));
+        } catch (error) {
+          console.warn("Prism Liberty: image mount unavailable", error);
+        }
+      }
+      return scene;
+    }
+    const o = () => {
+      if (window.PrismLibertyConfig) {
+        try {
+          mountScene(window.PrismLibertyConfig);
+        } catch (error) {
+          console.warn("Prism Liberty: scene unavailable", error);
+        }
+        return;
+      }
       document
         .querySelectorAll(
           "img[data-prism]:not([data-manual]), [data-prism-liberty]:not([data-manual])",
@@ -2579,6 +2706,7 @@
             console.warn("Prism Liberty: mount unavailable", error);
           }
         });
+    };
     "loading" === document.readyState
       ? document.addEventListener("DOMContentLoaded", o)
       : o();
