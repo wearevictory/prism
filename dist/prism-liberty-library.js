@@ -229,6 +229,8 @@
       u.attachShader(g, d(u.FRAGMENT_SHADER, t)),
       u.linkProgram(g),
       u.useProgram(g));
+    if (!u.getProgramParameter(g, u.LINK_STATUS))
+      throw new Error(u.getProgramInfoLog(g));
     var f = u.createBuffer();
     (u.bindBuffer(u.ARRAY_BUFFER, f),
       u.bufferData(
@@ -440,7 +442,11 @@
             u.uniform1f(p.uTwinkle, S ? 0 : _(c.twinkle, 0, 1.5)),
             u.uniform1f(p.uGrain, c.grain),
             u.drawArrays(u.TRIANGLES, 0, 3),
-            l.onFirstFrame && !l.__done && ((l.__done = 1), l.onFirstFrame()),
+            l.onFirstFrame &&
+              !l.__done &&
+              (u.isContextLost() || u.getError() !== u.NO_ERROR
+                ? ((I = !1), l.onError && l.onError())
+                : ((l.__done = 1), l.onFirstFrame())),
             B++,
             l.onFps &&
               e - k > 1e3 &&
@@ -2330,11 +2336,28 @@
       };
     let a = !1;
     function r(r, o) {
+      if (typeof r === "string") r = document.querySelector(r);
+      if (!r || r.nodeType !== 1)
+        throw new TypeError(
+          "Prism Liberty: mount requires an image or container",
+        );
+      const existing =
+        r.tagName === "IMG" ? r : r.querySelector("img[data-prism], img");
+      if (existing && existing.__prism) return existing.__prism;
       if (r.__prism) return r.__prism;
+      if (existing) {
+        r = existing.parentElement;
+        if (r && r.tagName === "PICTURE") r = r.parentElement;
+        if (!r) throw new Error("Prism Liberty: image must have a parent");
+        if (r.__prism)
+          throw new Error(
+            "Prism Liberty: use a separate parent for each image",
+          );
+      }
       if (!a) {
         const t = document.createElement("style");
         ((t.textContent =
-          "\n[data-prism-liberty]{position:relative;overflow:hidden;isolation:isolate;background:#020203}\n[data-prism-liberty] .pl-scene{position:absolute;inset:0}\n[data-prism-liberty] .pl-scene>canvas{position:absolute;inset:0;width:100%;height:100%;display:block;pointer-events:none}\n[data-prism-liberty] .pl-light,[data-prism-liberty] .pl-front{mix-blend-mode:screen}\n[data-prism-liberty] .pl-glow{mix-blend-mode:screen;filter:blur(14px) saturate(1.15)}\n[data-prism-liberty] .pl-grain{position:absolute;inset:0;pointer-events:none;mix-blend-mode:overlay;opacity:0;background:url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 .55 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E\")}\n[data-prism-liberty] .pl-img,[data-prism-liberty] canvas.pl-statue{position:absolute;inset:auto;pointer-events:none}\n[data-prism-liberty] .pl-img{display:block;object-fit:contain;animation:plRise 1.6s cubic-bezier(.3,.8,.25,1) .1s both}\n[data-prism-liberty] canvas.pl-statue{opacity:0}\n[data-prism-liberty].pl-gpu canvas.pl-statue{opacity:1;animation:plRise 1.6s cubic-bezier(.3,.8,.25,1) both}\n[data-prism-liberty].pl-gpu .pl-img{visibility:hidden}\n@keyframes plRise{from{opacity:0;transform:translateY(14px) scale(.985)}to{opacity:1;transform:none}}\n@media (prefers-reduced-motion:reduce){[data-prism-liberty] .pl-img,[data-prism-liberty].pl-gpu canvas.pl-statue{animation:none}}"),
+          "\n[data-prism-liberty]:not([data-prism-existing]){position:relative;overflow:hidden;isolation:isolate;background:#020203}\n[data-prism-liberty] .pl-scene{position:absolute;inset:0}\n[data-prism-liberty] .pl-scene>canvas{position:absolute;inset:0;width:100%;height:100%;display:block;pointer-events:none}\n[data-prism-liberty] .pl-light,[data-prism-liberty] .pl-front{mix-blend-mode:screen}\n[data-prism-liberty] .pl-glow{mix-blend-mode:screen;filter:blur(14px) saturate(1.15)}\n[data-prism-liberty] .pl-grain{position:absolute;inset:0;pointer-events:none;mix-blend-mode:overlay;opacity:0;background:url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 .55 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E\")}\n[data-prism-liberty] .pl-img,[data-prism-liberty] canvas.pl-statue{position:absolute;inset:auto;pointer-events:none}\n[data-prism-liberty] .pl-img{display:block;object-fit:contain;animation:plRise 1.6s cubic-bezier(.3,.8,.25,1) .1s both}\n[data-prism-liberty] canvas.pl-statue{opacity:0}\n[data-prism-liberty].pl-gpu canvas.pl-statue{opacity:1;animation:plRise 1.6s cubic-bezier(.3,.8,.25,1) both}\n[data-prism-liberty].pl-gpu .pl-img{visibility:hidden}\n@keyframes plRise{from{opacity:0;transform:translateY(14px) scale(.985)}to{opacity:1;transform:none}}\n@media (prefers-reduced-motion:reduce){[data-prism-liberty] .pl-img,[data-prism-liberty].pl-gpu canvas.pl-statue{animation:none}}"),
           document.head.appendChild(t),
           (a = !0));
       }
@@ -2357,7 +2380,14 @@
                 : t[r];
         return a;
       })(t, o || n)),
-        !r.style.height && r.clientHeight < 40 && (r.style.height = "100svh"));
+        !existing &&
+          !r.style.height &&
+          r.clientHeight < 40 &&
+          (r.style.height = "100svh"));
+      if (existing) r.setAttribute("data-prism-existing", "");
+      r.setAttribute("data-prism-liberty", "");
+      if (getComputedStyle(r).position === "static")
+        r.style.position = "relative";
       const s = (t, e, a) => {
           const r = document.createElement(t);
           if ((e && (r.className = e), a))
@@ -2369,51 +2399,102 @@
         h = s("div", "pl-grain", { "aria-hidden": "true" }),
         u = s("canvas", "pl-light", { "aria-hidden": "true" }),
         d = s("canvas", "pl-glow", { "aria-hidden": "true" }),
-        g = s("img", "pl-img", {
-          alt: n.alt,
-          decoding: "async",
-          fetchpriority: "high",
-        }),
+        g =
+          existing ||
+          s("img", "pl-img", {
+            alt: n.alt,
+            decoding: "async",
+            fetchpriority: "high",
+          }),
         f = s("canvas", "pl-statue", { "aria-hidden": "true" }),
         m = s("canvas", "pl-front", { "aria-hidden": "true" });
-      (l.append(c, h, u, d, g, f, m), r.prepend(l));
+      l.setAttribute("aria-hidden", "true");
+      l.style.pointerEvents = "none";
+      if (existing) {
+        l.append(c, h, u, d, f, m);
+        l.style.visibility = "hidden";
+        r.append(l);
+      } else {
+        l.append(c, h, u, d, g, f, m);
+        r.prepend(l);
+      }
+      const originalOpacity = g.style.getPropertyValue("opacity");
+      const originalPriority = g.style.getPropertyPriority("opacity");
       const p = { root: r, cfg: n, engine: null, statue: null };
       function b(t, e) {
+        if (existing) {
+          const imageRect = g.getBoundingClientRect();
+          const rootRect = r.getBoundingClientRect();
+          const scaleX = r.offsetWidth ? rootRect.width / r.offsetWidth : 1;
+          const scaleY = r.offsetHeight ? rootRect.height / r.offsetHeight : 1;
+          return {
+            x:
+              (imageRect.left - rootRect.left) / (scaleX || 1) -
+              r.clientLeft +
+              r.scrollLeft,
+            y:
+              (imageRect.top - rootRect.top) / (scaleY || 1) -
+              r.clientTop +
+              r.scrollTop,
+            w: imageRect.width / (scaleX || 1),
+            h: imageRect.height / (scaleY || 1),
+          };
+        }
         const a = n.layout,
-          r = (g.naturalWidth || 443) / (g.naturalHeight || 663);
+          ratio = (g.naturalWidth || 443) / (g.naturalHeight || 663);
         let o = e * a.size,
-          i = o * r;
+          i = o * ratio;
         return (
-          i > t * a.maxWidth && ((i = t * a.maxWidth), (o = i / r)),
+          i > t * a.maxWidth && ((i = t * a.maxWidth), (o = i / ratio)),
           { x: t * a.x - i / 2, y: e * a.y - o / 2, w: i, h: o }
         );
       }
       r.__prism = p;
+      if (existing) existing.__prism = p;
       let x = null;
       function w() {
         const t = b(r.clientWidth, r.clientHeight),
           e = 0.14 * t.h;
-        (Object.assign(g.style, {
-          left: t.x + "px",
-          top: t.y + "px",
-          width: t.w + "px",
-          height: t.h + "px",
-        }),
+        (!existing &&
+          Object.assign(g.style, {
+            left: t.x + "px",
+            top: t.y + "px",
+            width: t.w + "px",
+            height: t.h + "px",
+          }),
           Object.assign(f.style, {
             left: t.x - e + "px",
             top: t.y - e + "px",
             width: t.w + 2 * e + "px",
             height: t.h + 2 * e + "px",
           }),
-          (x = [e, e, t.w, t.h]));
+          (x = t.w > 0 && t.h > 0 ? [e, e, t.w, t.h] : null));
       }
-      (new ResizeObserver(w).observe(r), g.addEventListener("load", w));
+      const resize = new ResizeObserver(w);
+      resize.observe(r);
+      if (existing) resize.observe(g);
+      g.addEventListener("load", w);
       const v = () => Object.assign({}, n.aurora, n.sparkle, e),
-        M = () => r.classList.remove("pl-gpu");
+        M = () => {
+          r.classList.remove("pl-gpu");
+          if (existing) {
+            l.style.visibility = "hidden";
+            if (originalOpacity)
+              g.style.setProperty("opacity", originalOpacity, originalPriority);
+            else g.style.removeProperty("opacity");
+          }
+        };
+      const source =
+        (o && o.texture) ||
+        g.getAttribute("data-prism-texture") ||
+        n.image ||
+        g.currentSrc ||
+        g.src;
+      w();
       return (
-        n.image
+        source
           ? (function (t) {
-              g.src = t;
+              if (!existing) g.src = t;
               const e = new Image();
               ((e.crossOrigin = "anonymous"),
                 (e.onload = () =>
@@ -2441,7 +2522,13 @@
                       p.statue = window.createPrism(f, t, n.statue, {
                         observe: !0,
                         fit: () => x,
-                        onFirstFrame: () => r.classList.add("pl-gpu"),
+                        onFirstFrame: () => {
+                          r.classList.add("pl-gpu");
+                          if (existing) {
+                            l.style.visibility = "visible";
+                            g.style.setProperty("opacity", "0", "important");
+                          }
+                        },
                         onLost: M,
                         onError: M,
                       });
@@ -2455,23 +2542,10 @@
                     p.onReady && p.onReady(p);
                   })(e)),
                 (e.onerror = () => {
-                  try {
-                    p.engine = window.createLightEngine({
-                      settings: v(),
-                      stage: r,
-                      back: c,
-                      light: u,
-                      glow: d,
-                      front: m,
-                      grain: h,
-                      img: g,
-                      layout: (t, e) => b(t, e),
-                    });
-                  } catch (t) {}
                   (M(), p.onReady && p.onReady(p));
                 }),
                 (e.src = t));
-            })(n.image)
+            })(source)
           : console.warn(
               'Prism Liberty: add your image URL to "image" in the settings JSON',
             ),
@@ -2491,12 +2565,20 @@
       mount: r,
       DEFAULTS: t,
       LOCKED: e,
-      version: "1.0",
+      version: "1.1.0",
     };
     const o = () =>
       document
-        .querySelectorAll("[data-prism-liberty]:not([data-manual])")
-        .forEach((t) => r(t));
+        .querySelectorAll(
+          "img[data-prism]:not([data-manual]), [data-prism-liberty]:not([data-manual])",
+        )
+        .forEach((t) => {
+          try {
+            r(t);
+          } catch (error) {
+            console.warn("Prism Liberty: mount unavailable", error);
+          }
+        });
     "loading" === document.readyState
       ? document.addEventListener("DOMContentLoaded", o)
       : o();
