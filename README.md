@@ -1,4 +1,4 @@
-# Prism FX v2
+# Prism FX v2.1.2
 
 Three separate effects for Webflow, switched on with custom attributes and tuned from one JSON settings block:
 
@@ -15,9 +15,11 @@ src/prism-core.js      shared helpers, settings, one animation loop, image overl
 src/prism-aurora.js    Aurora tab
 src/prism-statue.js    Statue tab (GPU shader)
 src/prism-sparkle.js   Sparkle tab (glints, dust, halo, bloom, flares, ghosts)
-dist/prism.min.js      all four in one file, about 34 KB (14 KB compressed)
+dist/prism.min.js      all four in one file: 39 KB, about 16 KB compressed
+src/prism-tuner.js     the on-page tuner (never loads for visitors)
 dist/*.min.js          each module on its own
 examples/              a local test page and copy-paste Webflow snippets
+lab/prism-lab.html     the tuning Lab, offline copy
 ```
 
 For a single file, use `dist/prism.min.js`. To load only some effects, load `prism-core.min.js` first, then any of the others.
@@ -25,11 +27,11 @@ For a single file, use `dist/prism.min.js`. To load only some effects, load `pri
 ## Publishing on GitHub and jsDelivr
 
 1. Push this folder to a **public** GitHub repo.
-2. Create a version tag: `git tag v2.0.0 && git push --tags`, or use a GitHub Release.
+2. Create a version tag: `git tag v2.1.2 && git push --tags`, or use a GitHub Release.
 3. The script URL is:
-   `https://cdn.jsdelivr.net/gh/YOUR-USER/YOUR-REPO@v2.0.0/dist/prism.min.js`
+   `https://cdn.jsdelivr.net/gh/YOUR-USER/YOUR-REPO@v2.1.2/dist/prism.min.js`
 
-Tag each new release (`v2.0.1`, `v2.0.2`…) and change the version in the URL. Links to a branch like `@main` are cached for hours, so your changes look like they aren't arriving. If you have to refresh a URL, open `https://purge.jsdelivr.net/gh/YOUR-USER/YOUR-REPO@v2.0.0/dist/prism.min.js`.
+Tag each new release (`v2.1.3`, `v2.2.0`…) and change the version in the URL. Links to a branch like `@main` are cached for hours, so your changes look like they aren't arriving. If you have to refresh a URL, open `https://purge.jsdelivr.net/gh/YOUR-USER/YOUR-REPO@v2.1.2/dist/prism.min.js`.
 
 Two links that won't work as a script source: `raw.githubusercontent.com/...` and `github.com/.../blob/...`.
 
@@ -51,7 +53,7 @@ This block holds every value, so client changes happen here and the library neve
 **2. Library: Site settings › Custom code › Footer code.**
 
 ```html
-<script src="https://cdn.jsdelivr.net/gh/YOUR-USER/YOUR-REPO@v2.0.0/dist/prism.min.js" defer></script>
+<script src="https://cdn.jsdelivr.net/gh/YOUR-USER/YOUR-REPO@v2.1.2/dist/prism.min.js" defer></script>
 ```
 
 **3. Attributes, in the Designer under Element settings › Custom attributes.**
@@ -66,6 +68,58 @@ This block holds every value, so client changes happen here and the library neve
 | any of the above | `data-prism-manual` | (none) | skip automatic start-up; start it yourself with `Prism.mount()` |
 
 **4. Publish and check the live domain.** Custom code doesn't run in the Designer canvas.
+
+## Prism Lab
+
+`lab/prism-lab.html` (or the published Lab link) is where you tune everything. It runs this exact library.
+
+- **Aurora tab:** one aurora preset at a time. Make one per section style with **New**, then rename it; the name is the attribute value.
+- **Sparkle and Statue tabs:** one image preset at a time, shared by both tabs, with a switch for each effect.
+- **Save & export:**
+  - **Versions:** named snapshots for client rounds. The current work auto-saves to your account on the published link.
+  - **Step 1:** the head-code settings block.
+  - **Step 2:** the footer script tag, built from your GitHub user, repo and version tag.
+  - **Step 3:** the attributes to add in the Designer, listed by preset name.
+  - **Bring settings back in:** paste the head code from Webflow to keep tuning. It also accepts exports from the older Labs.
+
+## Tuning on your real site
+
+Open any page of your staging site with `?prism-tune` at the end of the URL, for example `https://yoursite.webflow.io/?prism-tune`. A **Prism tuner** button appears at the bottom left. The tuner file loads only when that URL parameter is there, so visitors never download it.
+
+1. Pick an element from the list, or tap **Pick** and then tap a section or image on the page.
+2. Choose which effect to edit: Aurora, Statue or Sparkle.
+3. Choose **All sizes**, **Tablet & phone**, or **Phone**. Phone-only values only show at phone width, so narrow the window or open the page on a phone to see them.
+4. Move the sliders. The real page updates live, and edited values are marked.
+5. Copy the result, in one of two ways:
+   - **Only this element:** paste the value into that element's `data-prism-options` custom attribute.
+   - **Every element using the preset:** replace your head code with the updated settings block.
+
+Your edits stay in that browser, so you can reload and keep going. They don't reach visitors until you paste them into Webflow and publish. `Prism.tuner.stop()` in the console closes the tuner for that tab.
+
+## Breakpoints
+
+Any preset, and any `data-prism-options`, can hold `tablet` and `mobile` values. These match Webflow's breakpoints: tablet is 991px and below, mobile is 767px and below.
+
+```json
+"liberty": {
+  "sparkle": { "dust": 120 },
+  "mobile":  { "sparkle": { "dust": 40 }, "statue": { "quality": 1.5 } }
+}
+```
+
+Values update live when the screen crosses a breakpoint.
+
+## Performance
+
+- **Size:** 39 KB minified, about 16 KB compressed, loaded with `defer`. It never blocks the page from drawing or delays your images.
+- **Layout:** effects sit in absolutely positioned layers with `contain: strict`, so they cause no layout shift and no reflow of your content.
+- **One animation loop:** each frame measures all images first, then draws, so the browser never re-calculates the page layout mid-frame. The loop stops completely when nothing is on screen.
+- **GPU budget:** an image's GPU work pauses the moment it leaves the screen and resumes instantly when it returns. Past 6 live contexts, the one seen longest ago is released.
+- **Adaptive quality:** if a device drops below about 45 fps for 1.5 seconds, Prism steps quality down. Statue sharpness goes down, the aurora renders at a lower resolution, and there are fewer glints and less dust. It steps back up after 12 smooth seconds. Devices with Save-Data on or under 4 GB of memory start one step down. To control it yourself, set `"performance": { "adaptive": false, "level": 0 }` in the settings block (levels 0, 1, 2).
+- **Pixel budgets:** the Statue's GPU canvas covers only the picture, never the sparkle margin around it. Its sharpness is capped so one image never draws more than `statue.maxPixels` (default 1.2 million). Sparkle is capped at `sparkle.maxPixels` (1.5 million) and draws at 1.25× density, because dust and flares are soft.
+- **Frame caps:** aurora, statue and sparkle redraw at `fps: 30` by default. The motion is slow, so it looks the same as 60 at half the work. Set `fps` to 24, 30 or 60 per preset. Image positions still track every frame, so Interactions stay smooth.
+- **Transparent pixels are skipped:** the light math only runs where the cutout has content.
+- **Heavy work off the critical path:** the outline tracing for Sparkle runs when the browser is idle.
 
 ## Settings reference
 
@@ -90,6 +144,7 @@ Anything you leave out uses the default below. Presets merge on top of `default`
 | `anchor` / `anchorY` | `""` / `0.36` | CSS selector to centre the light on an element instead; `anchorY` is how far down that element (0 top, 1 bottom) |
 | `fadeIn` | `1600` | fade-in in ms |
 | `resolution` | `0.6` | render scale; the aurora is soft, so it's drawn small and scaled up to save battery |
+| `fps` | `30` | redraws per second |
 | `zIndex` | `-1` | layer order inside the section; `-1` keeps it behind the section's content |
 
 ### `image.<preset>`
@@ -105,6 +160,7 @@ Anything you leave out uses the default below. Presets merge on top of `default`
 | `statue.scale` / `sharp` / `disp` / `edge` | `2.1` / `2.6` / `0.45` / `0.75` | band count, band focus, dispersion, edge refraction |
 | `statue.glitter` / `gsize` / `twinkle` | `0.45` / `20` / `0.7` | GPU glitter amount, size and rate |
 | `statue.quality` | `2` | pixel-density cap: 1 saves battery, 2 is sharp |
+| `statue.maxPixels` / `statue.fps` | `1200000` / `30` | most pixels one image may draw, and redraws per second |
 | `sparkle.glints` / `glintSize` / `glintStr` | `52` / `95` / `85` | glints on the outline: count, size, strength |
 | `sparkle.dust` / `dustStr` / `dustSpread` | `90` / `55` / `1.15` | dust: count, strength, how far it floats |
 | `sparkle.glintRate` | `0.45` | twinkle per second (capped at 1) |
@@ -112,6 +168,7 @@ Anything you leave out uses the default below. Presets merge on top of `default`
 | `sparkle.halo` / `bloom` | `50` / `45` | glow around the outline, and glow at the light source |
 | `sparkle.flares` / `flareStr` | `6` / `42` | lens flares |
 | `sparkle.ghosts` / `ghostStr` | `3` / `22` | lens reflections |
+| `sparkle.quality` / `maxPixels` / `fps` | `1.25` / `1500000` / `30` | density cap, pixel budget, redraws per second |
 | `sparkle.origin` | `{"x":0.5,"y":0.36}` | where the light comes from on the image |
 
 ## How it behaves

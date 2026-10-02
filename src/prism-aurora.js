@@ -32,6 +32,7 @@
     seed: 8,
     resolution: .6,       // render scale; the aurora is soft, so it can be drawn small and scaled up
     zIndex: -1,           // behind the section's own content
+    fps: 30,              // the turn is slow; 30 frames a second is plenty
   };
   var CAP = 90;           // flash safety: brightness ceiling
   var BGPAL = { // OKLCH
@@ -106,7 +107,9 @@
       clearTimeout(resize.t); resize.t = setTimeout(paint, 120);
       if (!TEX) paint();
     }
+    var acc = 0;
     function draw(dt) {
+      acc += dt; if (S.fps && acc < 1 / S.fps - .004) return; dt = acc; acc = 0;
       if (!U.reduced) t += dt;
       drift += (S.bgDrift - drift) * (1 - Math.exp(-dt * 6));
       x.setTransform(1, 0, 0, 1, 0, 0); x.globalAlpha = 1; x.globalCompositeOperation = 'source-over';

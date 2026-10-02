@@ -9,7 +9,7 @@
   if (window.Prism && window.Prism.core) return;
   var P = window.Prism = window.Prism || {};
   P.core = true;
-  P.version = '2.1.1';
+  P.version = '2.1.2';
   var SCRIPT = (document.currentScript && document.currentScript.src) || '';
 
   /* ── Helpers ─────────────────────────────────────────────────────── */
@@ -271,6 +271,7 @@
     seed: 8,
     resolution: .6,       // render scale; the aurora is soft, so it can be drawn small and scaled up
     zIndex: -1,           // behind the section's own content
+    fps: 30,              // the turn is slow; 30 frames a second is plenty
   };
   var CAP = 90;           // flash safety: brightness ceiling
   var BGPAL = { // OKLCH
@@ -345,7 +346,9 @@
       clearTimeout(resize.t); resize.t = setTimeout(paint, 120);
       if (!TEX) paint();
     }
+    var acc = 0;
     function draw(dt) {
+      acc += dt; if (S.fps && acc < 1 / S.fps - .004) return; dt = acc; acc = 0;
       if (!U.reduced) t += dt;
       drift += (S.bgDrift - drift) * (1 - Math.exp(-dt * 6));
       x.setTransform(1, 0, 0, 1, 0, 0); x.globalAlpha = 1; x.globalCompositeOperation = 'source-over';
@@ -449,27 +452,29 @@ var createShader=(function(){
   " uv=clamp(uv,0.,1.);",
   " float A=alp(uv)*inside;",
   " vec3 base=img(uv)*inside;",
+  " vec3 light=vec3(0.),tinted=vec3(0.);float lum=0.,warp=0.,t=uTime;",
+  " if(A>.003){",   
   " vec2 o=uTexel*1.25;",
   " vec3 n1=img(uv+vec2(o.x,0.)),n2=img(uv-vec2(o.x,0.)),n3=img(uv+vec2(0.,o.y)),n4=img(uv-vec2(0.,o.y));",
   " vec3 blur=(n1+n2+n3+n4)*.25;",
   " base=max(base+(base-blur)*uClarity*1.6*inside,0.)*inside;",
-  " float lum=L(base);",
+  "  lum=L(base);",
   " float gx=L(n1)-L(n2),gy=L(n3)-L(n4);",
   " float edge=clamp(length(vec2(gx,gy))*3.5,0.,1.);",
-  " float t=uTime;",
-  " vec2 p=(pix-uFit.xy)/uFit.w;",
+    " vec2 p=(pix-uFit.xy)/uFit.w;",
   " vec2 dir=vec2(cos(uAngle),sin(uAngle));",
   " vec2 q=p*uFlowScale;",
   " vec2 w=vec2(fbm(q+vec2(0.,t*.13)),fbm(q+vec2(5.2,1.3)-vec2(t*.11,0.)));",
-  " float warp=fbm(q+1.7*w+vec2(t*.08,-t*.06));",
+  "  warp=fbm(q+1.7*w+vec2(t*.08,-t*.06));",
   " float ph=dot(p,dir)*uScale+warp*uFlow+lum*uFollow-t*uSpeed;",
   " float d=uDisp*.06;",
   " float hue=ph*.31+warp*.35+t*.015+uHue;",
   " vec3 lt=vec3(ramp(hue-d*2.).r*band(ph-d),ramp(hue).g*band(ph),ramp(hue+d*2.).b*band(ph+d));",
   " float hl=smoothstep(uThresh,uThresh+uSoft,lum);",
   " float m=clamp(hl+edge*uEdge,0.,1.)*inside*A;",
-  " vec3 light=lt*m*uLight;",
-  " vec3 tinted=ramp(lum*.6+warp*.15+uHue)*lum*1.35;",
+  "  light=lt*m*uLight;",
+  "  tinted=ramp(lum*.6+warp*.15+uHue)*lum*1.35;",
+  " }",
   " vec3 col=mix(base,max(base,tinted*A),uTint*inside);",
   " col=1.-(1.-col)*(1.-clamp(light,0.,1.));",
   " col+=light*light*.35;",
@@ -552,9 +557,9 @@ var createShader=(function(){
    var ro=window.ResizeObserver?new ResizeObserver(resize):null;if(ro)ro.observe(canvas);else window.addEventListener("resize",resize);resize();
    var visible=true;
    if(opts.observe&&window.IntersectionObserver){new IntersectionObserver(function(e){visible=e[0].isIntersecting;},{rootMargin:"100px"}).observe(canvas);}
-   var still=0,paused=false,clock=0,last=performance.now(),raf=0,frames=0,fpsT=last;
+   var acc=0,still=0,paused=false,clock=0,last=performance.now(),raf=0,frames=0,fpsT=last;
    function clamp(v,a,b){return Math.max(a,Math.min(b,v));}
-   function frame(now){raf=requestAnimationFrame(frame);var dt=Math.min(.05,(now-last)/1000);last=now;if(!visible)return;
+   function frame(now){raf=requestAnimationFrame(frame);acc+=(now-last)/1000;last=now;if(!visible)return;if(S.fps&&acc<1/S.fps-.004)return;var dt=Math.min(.1,acc);acc=0;
     if(paused){if(still)return;still=1;}else{still=0;clock+=dt*(reduce?0.25:1);}
     var fx0,fy0,fw,fh;if(opts.fit){var F=opts.fit();if(!F)return;fx0=F[0]*dpr;fy0=F[1]*dpr;fw=F[2]*dpr;fh=F[3]*dpr;}else{var pad=opts.pad||0,sc=Math.min((W-pad*2*dpr)/iw,(H-pad*2*dpr)/ih);fw=iw*sc;fh=ih*sc;fx0=(W-fw)/2;fy0=(H-fh)/2;}
     gl.uniform2f(U.uRes,W,H);gl.uniform4f(U.uFit,fx0,fy0,fw,fh);gl.uniform2f(U.uTexel,1/iw,1/ih);
@@ -583,7 +588,10 @@ var createShader=(function(){
   })();
   
   P.STATUE_DEFAULTS = { mode: 'replace', palette: 'prism', light: 1, tint: .08, clarity: .4, speed: .22, flow: 1.15, flowScale: 1.5, scale: 2.1, sharp: 2.6,
-    follow: .55, disp: .45, hue: 0, thresh: .32, soft: .38, edge: .75, glitter: .45, gsize: 20, twinkle: .7, grain: 0, quality: 2 };
+    follow: .55, disp: .45, hue: 0, thresh: .32, soft: .38, edge: .75, glitter: .45, gsize: 20, twinkle: .7, grain: 0, quality: 2,
+    fps: 30,             // light moves slowly; 30 frames a second looks the same as 60 at half the work
+    maxPixels: 1200000   // per image: sharpness is capped so a large image never draws more than this
+  };
   P.IMAGE_DEFAULTS = P.IMAGE_DEFAULTS || {};
   P.IMAGE_DEFAULTS.effects = P.IMAGE_DEFAULTS.effects || ['statue', 'sparkle'];
   P.IMAGE_DEFAULTS.pad = P.IMAGE_DEFAULTS.pad != null ? P.IMAGE_DEFAULTS.pad : .3;
@@ -610,10 +618,16 @@ var createShader=(function(){
     var canvas = document.createElement('canvas'), alive = true;
     var overlay = S.mode !== 'replace';
     canvas.className = 'prism-statue';
-    canvas.style.cssText = 'position:absolute;inset:0;z-index:1;width:100%;height:100%;display:block;opacity:0;transition:opacity .9s ease' + (overlay ? ';mix-blend-mode:screen' : '');
+    /* the GPU canvas covers the picture only, never the sparkle margin around it */
+    canvas.style.cssText = 'position:absolute;left:0;top:0;width:1px;height:1px;z-index:1;display:block;opacity:0;transition:opacity .9s ease' + (overlay ? ';mix-blend-mode:screen' : '');
     var rec = { fx: null, visible: false, seen: 0 };
     var showImg = function () { if (!overlay) img.style.visibility = ''; };
-    var q = function () { return Math.min(S.quality, P.perf.scale([S.quality, 1.5, 1])); };
+    var q = function () { var budget = Math.sqrt(S.maxPixels / Math.max(1, ov.w * ov.h)); return Math.max(.5, Math.min(S.quality, P.perf.scale([S.quality, 1.5, 1]), budget)); };
+    var lastQ = 0;
+    function resize() {
+      Object.assign(canvas.style, { left: ov.pad + 'px', top: ov.pad + 'px', width: ov.w + 'px', height: ov.h + 'px' });
+      var nq = q(); if (rec.fx && Math.abs(nq - lastQ) > .05) { lastQ = nq; rec.fx.set('quality', nq); }
+    }
     rec.release = function () { if (!rec.fx) return; rec.fx.destroy(); rec.fx = null; canvas.style.opacity = 0; showImg(); };
     function show() {
       rec.visible = true; rec.seen = performance.now();
@@ -623,10 +637,10 @@ var createShader=(function(){
       ov.load().then(function (tex) {
         if (rec.fx || !rec.visible || !alive) return;
         try {
-          var opts = U.clone(S); opts.quality = q();
+          resize(); var opts = U.clone(S); opts.quality = lastQ = q();
           rec.fx = createShader(canvas, tex, opts, {
             overlay: overlay,
-            fit: function () { return [ov.pad, ov.pad, ov.w, ov.h]; },
+            fit: function () { return [0, 0, ov.w, ov.h]; },
             onFirstFrame: function () { canvas.style.opacity = 1; if (!overlay) img.style.visibility = 'hidden'; },
             onLost: function () { rec.fx = null; canvas.style.opacity = 0; showImg(); },
             onError: showImg,
@@ -636,15 +650,15 @@ var createShader=(function(){
     }
     function hide() { rec.visible = false; rec.seen = performance.now(); if (rec.fx) rec.fx.pause(true); }
     pool.push(rec);
-    var layer = { el: canvas, show: show, hide: hide };
+    var layer = { el: canvas, show: show, hide: hide, resize: resize };
     ov.add(layer);
-    P.perf.on(function () { if (rec.fx) rec.fx.set('quality', q()); });
+    P.perf.on(function () { if (rec.fx) rec.fx.set('quality', lastQ = q()); });
     var api = {
       settings: S, overlay: ov, kind: 'statue', defaults: P.STATUE_DEFAULTS,
       set: function (k, v) {
         S[k] = v;
         if (k === 'mode') { overlay = v !== 'replace'; rec.release(); canvas.style.mixBlendMode = overlay ? 'screen' : ''; if (rec.visible) show(); return; }
-        if (rec.fx) rec.fx.set(k, k === 'quality' ? q() : v);
+        if (rec.fx) rec.fx.set(k, (k === 'quality' || k === 'maxPixels') ? (lastQ = q()) : v);
       },
       reconfigure: function (next) {
         if (manual && !next) return;
@@ -683,6 +697,9 @@ var createShader=(function(){
     flares: 6, flareStr: 42, ghosts: 3, ghostStr: 22,
     origin: { x: .5, y: .36 },                  // where the light comes from, on the image (0–1)
     fadeIn: 1200, seed: 8,
+    quality: 1.25,       // pixel density cap: dust and flares are soft, so they don't need full retina
+    maxPixels: 1500000,  // and the layer never draws more than this many pixels
+    fps: 30,
   };
   P.IMAGE_DEFAULTS = P.IMAGE_DEFAULTS || {};
   P.IMAGE_DEFAULTS.effects = P.IMAGE_DEFAULTS.effects || ['statue', 'sparkle'];
@@ -754,7 +771,7 @@ var createShader=(function(){
     wrap.style.cssText = 'position:absolute;inset:0;z-index:2';
     front.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;mix-blend-mode:screen';
     wrap.appendChild(front);
-    var fx = front.getContext('2d'), dpr = U.dpr(2);
+    var fx = front.getContext('2d'), dpr = U.dpr(S.quality), acc = 0;
     var t = 0, running = false, EDGES = [], HALO = null, HM = .2, GL = [], DU = [], FL = [], GH = [];
 
     function seed() {
@@ -793,6 +810,7 @@ var createShader=(function(){
       } catch (e) { EDGES = []; HALO = null; }
     }
     function resize() {
+      dpr = Math.max(.5, Math.min(U.dpr(S.quality), P.perf.scale([2, 1.25, 1]), Math.sqrt(S.maxPixels / Math.max(1, ov.W * ov.H))));
       front.width = Math.round(ov.W * dpr); front.height = Math.round(ov.H * dpr);
       /* feather every edge of the layer, so flares, halo and dust fade out instead of
          stopping at a hard line where the layer ends */
@@ -810,6 +828,7 @@ var createShader=(function(){
     }
     function frame(dt) {
       if (!running) return;
+      acc += dt; if (S.fps && acc < 1 / S.fps - .004) return; dt = acc; acc = 0;
       if (!U.reduced) t += dt;
       var W = ov.W, H = ov.H, p = ov.pad, iw = ov.w, ih = ov.h, ox = p + S.origin.x * iw, oy = p + S.origin.y * ih;
       var k = ih / 800, Ui = Math.min(iw, ih) / 2, rate = Math.min(1, S.glintRate), e0 = .1, rr = Math.max(.3, S.fadeIn / 1000), ramp = U.reduced ? 1 : U.easeOut(clamp(t / rr, 0, 1));
@@ -872,6 +891,7 @@ var createShader=(function(){
     };
     ov.add(layer);
     seed(); resize();
+    P.perf.on(function () { if (ov.W > 1) resize(); });
     var api = {
       settings: S, overlay: ov, kind: 'sparkle', defaults: P.SPARKLE_DEFAULTS,
       reconfigure: function (next) {
@@ -881,7 +901,7 @@ var createShader=(function(){
         for (var k in sp) if (JSON.stringify(sp[k]) !== JSON.stringify(S[k])) api.set(k, sp[k]);
         if (next.pad != null) ov.padScale = next.pad;
       },
-      set: function (k, v) { if (k === 'origin') S.origin = v; else S[k] = v; if (k === 'flares' || k === 'ghosts' || k === 'seed') seed(); if (k === 'seed') { EDGES = []; HALO = null; ov.load().then(edges, function () {}); } },
+      set: function (k, v) { if (k === 'origin') S.origin = v; else S[k] = v; if (k === 'quality' || k === 'maxPixels') resize(); if (k === 'flares' || k === 'ghosts' || k === 'seed') seed(); if (k === 'seed') { EDGES = []; HALO = null; ov.load().then(edges, function () {}); } },
       replay: function () { t = 0; },
       destroy: function () { ov.remove(layer); running = false; if (img.__prism) img.__prism.sparkle = undefined; },
     };

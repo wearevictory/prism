@@ -25,7 +25,7 @@
       ['bgCentre', 'Centre fade', 0, 100, 1], ['bgEdge', 'Edge fade', 0, 100, 1],
       ['bgHue', 'Hue shift', -180, 180, 1], ['bgSat', 'Saturation', 0, 160, 1], ['bgLight', 'Lightness', 40, 130, 1], ['grain', 'Grain', 0, 80, 1],
       G('Where the light sits'), ['x', 'Horizontal %', 0, 100, 1], ['y', 'Vertical %', 0, 100, 1], ['anchorY', 'Height on anchor', 0, 1, .01],
-      G('Performance'), ['resolution', 'Render scale', .3, 1, .05], ['fadeIn', 'Fade in ms', 600, 4000, 50],
+      G('Performance'), ['resolution', 'Render scale', .3, 1, .05], ['fadeIn', 'Fade in ms', 600, 4000, 50], SEG('fps', 'Frame rate', [[24, '24'], [30, '30'], [60, '60']]),
     ],
     statue: [
       SEG('palette', 'Light colour', [['prism', 'Prism'], ['diamond', 'Diamond'], ['crystal', 'Crystal'], ['champagne', 'Champagne'], ['shard', 'Shard']]),
@@ -35,6 +35,7 @@
       ['scale', 'Band count', .5, 6, .01], ['sharp', 'Band focus', 1, 8, .01], ['disp', 'Dispersion', 0, 1, .01], ['edge', 'Edge refraction', 0, 2, .01],
       ['glitter', 'Glitter', 0, 1, .01], ['gsize', 'Glitter size', 8, 48, 1], ['twinkle', 'Glitter twinkle', 0, 1.5, .01],
       SEG('quality', 'Sharpness', [[1, 'Battery'], [1.5, 'Balanced'], [2, 'Sharp']]),
+      SEG('fps', 'Frame rate', [[24, '24'], [30, '30'], [60, '60']]),
     ],
     sparkle: [
       ['glints', 'Glints', 0, 160, 1], ['glintSize', 'Glint size', 10, 200, 1], ['glintStr', 'Glint strength', 0, 100, 1],
@@ -42,6 +43,7 @@
       ['halo', 'Halo', 0, 100, 1], ['bloom', 'Bloom', 0, 60, 1], ['glintRate', 'Twinkle /s', .05, 1, .05], ['warmth', 'Warmth %', 0, 100, 1],
       ['flares', 'Flares', 0, 16, 1], ['flareStr', 'Flare strength', 0, 100, 1], ['ghosts', 'Reflections', 0, 10, 1], ['ghostStr', 'Reflection strength', 0, 100, 1],
       G('Light source on the image'), ['origin.x', 'Horizontal', 0, 1, .01], ['origin.y', 'Vertical', 0, 1, .01],
+      G('Performance'), SEG('quality', 'Sharpness', [[1, 'Battery'], [1.5, 'Balanced'], [2, 'Sharp']]), SEG('fps', 'Frame rate', [[24, '24'], [30, '30'], [60, '60']]),
     ],
   };
 

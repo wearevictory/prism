@@ -21,6 +21,9 @@
     flares: 6, flareStr: 42, ghosts: 3, ghostStr: 22,
     origin: { x: .5, y: .36 },                  // where the light comes from, on the image (0–1)
     fadeIn: 1200, seed: 8,
+    quality: 1.25,       // pixel density cap: dust and flares are soft, so they don't need full retina
+    maxPixels: 1500000,  // and the layer never draws more than this many pixels
+    fps: 30,
   };
   P.IMAGE_DEFAULTS = P.IMAGE_DEFAULTS || {};
   P.IMAGE_DEFAULTS.effects = P.IMAGE_DEFAULTS.effects || ['statue', 'sparkle'];
@@ -92,7 +95,7 @@
     wrap.style.cssText = 'position:absolute;inset:0;z-index:2';
     front.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;mix-blend-mode:screen';
     wrap.appendChild(front);
-    var fx = front.getContext('2d'), dpr = U.dpr(2);
+    var fx = front.getContext('2d'), dpr = U.dpr(S.quality), acc = 0;
     var t = 0, running = false, EDGES = [], HALO = null, HM = .2, GL = [], DU = [], FL = [], GH = [];
 
     function seed() {
@@ -131,6 +134,7 @@
       } catch (e) { EDGES = []; HALO = null; }
     }
     function resize() {
+      dpr = Math.max(.5, Math.min(U.dpr(S.quality), P.perf.scale([2, 1.25, 1]), Math.sqrt(S.maxPixels / Math.max(1, ov.W * ov.H))));
       front.width = Math.round(ov.W * dpr); front.height = Math.round(ov.H * dpr);
       /* feather every edge of the layer, so flares, halo and dust fade out instead of
          stopping at a hard line where the layer ends */
@@ -148,6 +152,7 @@
     }
     function frame(dt) {
       if (!running) return;
+      acc += dt; if (S.fps && acc < 1 / S.fps - .004) return; dt = acc; acc = 0;
       if (!U.reduced) t += dt;
       var W = ov.W, H = ov.H, p = ov.pad, iw = ov.w, ih = ov.h, ox = p + S.origin.x * iw, oy = p + S.origin.y * ih;
       var k = ih / 800, Ui = Math.min(iw, ih) / 2, rate = Math.min(1, S.glintRate), e0 = .1, rr = Math.max(.3, S.fadeIn / 1000), ramp = U.reduced ? 1 : U.easeOut(clamp(t / rr, 0, 1));
@@ -210,6 +215,7 @@
     };
     ov.add(layer);
     seed(); resize();
+    P.perf.on(function () { if (ov.W > 1) resize(); });
     var api = {
       settings: S, overlay: ov, kind: 'sparkle', defaults: P.SPARKLE_DEFAULTS,
       reconfigure: function (next) {
@@ -219,7 +225,7 @@
         for (var k in sp) if (JSON.stringify(sp[k]) !== JSON.stringify(S[k])) api.set(k, sp[k]);
         if (next.pad != null) ov.padScale = next.pad;
       },
-      set: function (k, v) { if (k === 'origin') S.origin = v; else S[k] = v; if (k === 'flares' || k === 'ghosts' || k === 'seed') seed(); if (k === 'seed') { EDGES = []; HALO = null; ov.load().then(edges, function () {}); } },
+      set: function (k, v) { if (k === 'origin') S.origin = v; else S[k] = v; if (k === 'quality' || k === 'maxPixels') resize(); if (k === 'flares' || k === 'ghosts' || k === 'seed') seed(); if (k === 'seed') { EDGES = []; HALO = null; ov.load().then(edges, function () {}); } },
       replay: function () { t = 0; },
       destroy: function () { ov.remove(layer); running = false; if (img.__prism) img.__prism.sparkle = undefined; },
     };
