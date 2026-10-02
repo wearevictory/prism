@@ -9,7 +9,7 @@
   if (window.Prism && window.Prism.core) return;
   var P = window.Prism = window.Prism || {};
   P.core = true;
-  P.version = '2.1.2';
+  P.version = '2.3.0';
   var SCRIPT = (document.currentScript && document.currentScript.src) || '';
 
   /* ── Helpers ─────────────────────────────────────────────────────── */
@@ -36,6 +36,37 @@
     dpr: function (cap) { return Math.min(cap || 2, window.devicePixelRatio || 1); },
     idle: function (fn) { return window.requestIdleCallback ? requestIdleCallback(fn, { timeout: 600 }) : setTimeout(fn, 1); },
     warn: function () { var a = ['Prism:']; for (var i = 0; i < arguments.length; i++) a.push(arguments[i]); console.warn.apply(console, a); },
+  };
+  /* pick the smallest srcset candidate that is still sharp at this size */
+  U.pickSrc = function (img, cssWidth) {
+    var need = cssWidth * Math.min(2, window.devicePixelRatio || 1), best = null, largest = null;
+    (img.getAttribute('srcset') || '').split(',').forEach(function (part) {
+      var m = part.trim().match(/^(\S+)\s+(\d+)w$/); if (!m) return;
+      var c = { url: m[1], w: +m[2] };
+      if (!largest || c.w > largest.w) largest = c;
+      if (c.w >= need && (!best || c.w < best.w)) best = c;
+    });
+    return (best || largest || {}).url || img.getAttribute('data-prism-src') || img.currentSrc || img.src;
+  };
+  /* load a picture the GPU may read (CORS), decoded off the main thread, and scaled
+     down to what will actually be drawn: smaller uploads, less GPU memory */
+  U.prepare = function (url, maxSide) {
+    return new Promise(function (res, rej) {
+      if (!url) return rej(new Error('no image url'));
+      var t = new Image(); t.crossOrigin = 'anonymous'; t.decoding = 'async';
+      t.onload = function () {
+        (t.decode ? t.decode() : Promise.resolve()).catch(function () {}).then(function () {
+          var nw = t.naturalWidth, nh = t.naturalHeight, side = Math.max(nw, nh);
+          if (!maxSide || side <= maxSide * 1.1) return res(t);
+          var k = maxSide / side, c = U.cv(nw * k, nh * k), x = c.getContext('2d');
+          x.imageSmoothingQuality = 'high'; x.drawImage(t, 0, 0, c.width, c.height);
+          c.naturalWidth = c.width; c.naturalHeight = c.height; c.src = url;
+          res(c);
+        });
+      };
+      t.onerror = function () { U.warn('could not read the image (the host must allow CORS). The image shows without effects.', url); rej(new Error('cors')); };
+      t.src = url;
+    });
   };
   U.ok = function (L, C, h, a) { return U.rgba(U.oklch(L / 100, C, h), a == null ? 1 : a); };
   var isObj = U.isObj = function (v) { return v && typeof v === 'object' && !Array.isArray(v); };
@@ -163,18 +194,17 @@
     }
     ov.measure = function () { read(); write(0, performance.now()); return !!next; };
     /* a CORS-readable copy of the picture: the GPU and the edge finder can only read images the host allows */
-    ov.load = function () {
-      if (ov.texture) return ov.texture;
-      var src = img.getAttribute('data-prism-src') || img.currentSrc || img.src;
-      ov.texture = new Promise(function (res, rej) {
-        if (!src) return rej(new Error('image has no src'));
-        var t = new Image(); t.crossOrigin = 'anonymous'; t.decoding = 'async';
-        t.onload = function () { (t.decode ? t.decode() : Promise.resolve()).catch(function () {}).then(function () { res(t); }); };
-        t.onerror = function () { U.warn('could not read the image (the host must allow CORS). The image shows without effects.', src); rej(new Error('cors')); };
-        t.src = src;
-      });
-      return ov.texture;
+    var cache = {}, order = [];
+    var side = function () { return Math.ceil(Math.max(ov.w, ov.h, img.clientWidth, img.clientHeight, 64) * Math.min(2, window.devicePixelRatio || 1)); };
+    /* any picture for this image, prepared once and kept for the last few used */
+    ov.fetch = function (url) {
+      if (!cache[url]) { cache[url] = U.prepare(url, side()); order.push(url); }
+      if (order.length > 4) { var i = order.findIndex(function (u) { return u !== ov.current && u !== url; }); if (i >= 0) delete cache[order.splice(i, 1)[0]]; }
+      return cache[url];
     };
+    ov.current = null;
+    /* reuse the file the browser already chose for this screen, so nothing downloads twice */
+    ov.load = function () { if (!ov.texture) { ov.current = ov.current || img.getAttribute('data-prism-src') || img.currentSrc || U.pickSrc(img, img.clientWidth || 600); ov.texture = ov.fetch(ov.current); } return ov.texture; };
     ov.add = function (layer) { ov.layers.push(layer); el.appendChild(layer.el); if (ov.visible && layer.show) layer.show(); };
     ov.remove = function (layer) { var i = ov.layers.indexOf(layer); if (i >= 0) ov.layers.splice(i, 1); if (layer.hide) layer.hide(); if (layer.el && layer.el.parentNode) layer.el.parentNode.removeChild(layer.el); };
     var stopR = null, stopW = null;
@@ -225,7 +255,10 @@
   /* the on-page tuner never ships to visitors: it loads only with ?prism-tune in the URL */
   P.tune = function () {
     if (P.tuner) return P.tuner.open();
-    var src = SCRIPT ? SCRIPT.replace(/[^/]*$/, 'prism-tuner.min.js') : '';
+    /* find where the library came from (works with or without defer, and with async loaders) */
+    var from = SCRIPT;
+    if (!from) [].forEach.call(document.scripts, function (sc) { if (/\/prism(-core)?(\.min)?\.js(\?|$)/.test(sc.src)) from = sc.src; });
+    var src = from ? from.replace(/[^/?]*(\?.*)?$/, 'prism-tuner.min.js') : '';
     if (!src) { U.warn('cannot find where the library was loaded from; load prism-tuner.min.js yourself'); return; }
     var s = document.createElement('script'); s.src = src; s.defer = true; document.head.appendChild(s);
   };
@@ -442,26 +475,25 @@ var createShader=(function(){
   "float fbm(vec2 p){float s=0.,a=.5;for(int i=0;i<3;i++){s+=a*sn(p);p=p*2.03+vec2(17.1,9.7);a*=.5;}return s;}",
   "float h21(vec2 p){p=fract(p*vec2(123.34,456.21));p+=dot(p,p+45.32);return fract(p.x*p.y);}",
   "float L(vec3 c){return dot(c,vec3(.2126,.7152,.0722));}",
-  "vec3 img(vec2 u){return texture2D(uImg,u).rgb;}","float alp(vec2 u){return texture2D(uImg,u).a;}",
+  "float box(vec2 u){return step(0.,u.x)*step(u.x,1.)*step(0.,u.y)*step(u.y,1.);}",
+  "vec4 tA(vec2 px){vec2 u=(px-uFit.xy)/uFit.zw;return texture2D(uImg,clamp(u,0.,1.))*box(u);}",
+  "vec4 T(vec2 px){return tA(px);}",
   "vec3 ramp(float x){return texture2D(uRamp,vec2(fract(x),.5)).rgb;}",
   "float band(float x){return pow(.5+.5*cos(6.2831853*x),uSharp);}",
   "void main(){",
   " vec2 pix=vec2(gl_FragCoord.x,uRes.y-gl_FragCoord.y);",
-  " vec2 uv=(pix-uFit.xy)/uFit.zw;",
-  " float inside=step(0.,uv.x)*step(uv.x,1.)*step(0.,uv.y)*step(uv.y,1.);",
-  " uv=clamp(uv,0.,1.);",
-  " float A=alp(uv)*inside;",
-  " vec3 base=img(uv)*inside;",
+  " float inside=1.;",
+  " vec4 c0=T(pix);float A=c0.a;vec3 base=c0.rgb;",
   " vec3 light=vec3(0.),tinted=vec3(0.);float lum=0.,warp=0.,t=uTime;",
   " if(A>.003){",   
-  " vec2 o=uTexel*1.25;",
-  " vec3 n1=img(uv+vec2(o.x,0.)),n2=img(uv-vec2(o.x,0.)),n3=img(uv+vec2(0.,o.y)),n4=img(uv-vec2(0.,o.y));",
+  " vec2 o=vec2(uFit.z*uTexel.x,uFit.w*uTexel.y)*1.25;",
+  " vec3 n1=T(pix+vec2(o.x,0.)).rgb,n2=T(pix-vec2(o.x,0.)).rgb,n3=T(pix+vec2(0.,o.y)).rgb,n4=T(pix-vec2(0.,o.y)).rgb;",
   " vec3 blur=(n1+n2+n3+n4)*.25;",
   " base=max(base+(base-blur)*uClarity*1.6*inside,0.)*inside;",
   "  lum=L(base);",
   " float gx=L(n1)-L(n2),gy=L(n3)-L(n4);",
   " float edge=clamp(length(vec2(gx,gy))*3.5,0.,1.);",
-    " vec2 p=(pix-uFit.xy)/uFit.w;",
+    " vec2 p=pix/uRes.y;",
   " vec2 dir=vec2(cos(uAngle),sin(uAngle));",
   " vec2 q=p*uFlowScale;",
   " vec2 w=vec2(fbm(q+vec2(0.,t*.13)),fbm(q+vec2(5.2,1.3)-vec2(t*.11,0.)));",
@@ -487,9 +519,7 @@ var createShader=(function(){
   "   float h=h21(c);",
   "   if(h>uGlitter*.4)continue;",
   "   vec2 ctr=(c+vec2(h21(c+3.1),h21(c+7.7)))*cs;",
-  "   vec2 cu=(ctr-uFit.xy)/uFit.zw;",
-  "   float gate=step(0.,cu.x)*step(cu.x,1.)*step(0.,cu.y)*step(cu.y,1.);",
-  "   gate*=smoothstep(uThresh+.05,uThresh+.35,L(img(clamp(cu,0.,1.))));",
+  "   float gate=smoothstep(uThresh+.05,uThresh+.35,L(T(ctr).rgb));",
   "   float tw=.5+.5*sin(t*6.2831853*uTwinkle*(.55+.45*h21(c+1.3))+h21(c+9.1)*6.2831853);",
   "   tw=tw*tw*tw*tw*tw*tw;",
   "   vec2 dd=pix-ctr;float r=cs*(.45+.6*h21(c+4.4));",
@@ -548,21 +578,24 @@ var createShader=(function(){
    var tImg=tex();gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);
    var tRamp=tex();gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.REPEAT);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);
    var iw=1,ih=1;
-   function setImage(im){iw=im.naturalWidth||im.width;ih=im.naturalHeight||im.height;gl.activeTexture(gl.TEXTURE0);gl.bindTexture(gl.TEXTURE_2D,tImg);gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL,true);gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,im);gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL,false);}
+   function upload(unit,t,im){gl.activeTexture(unit);gl.bindTexture(gl.TEXTURE_2D,t);gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL,true);gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,im);gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL,false);}
+   function setImage(im){iw=im.naturalWidth||im.width;ih=im.naturalHeight||im.height;upload(gl.TEXTURE0,tImg,im);still=0;}
+   function contain(bx,by,bw,bh,tw,th){var s=Math.min(bw/tw,bh/th),w=tw*s,h=th*s;return[bx+(bw-w)/2,by+(bh-h)/2,w,h];}
    function setPalette(){var p=PALETTES[S.palette]||PALETTES.prism;gl.activeTexture(gl.TEXTURE1);gl.bindTexture(gl.TEXTURE_2D,tRamp);gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,256,1,0,gl.RGBA,gl.UNSIGNED_BYTE,rampData(p.stops));}
-   setImage(image);setPalette();gl.uniform1i(U.uImg,0);gl.uniform1i(U.uRamp,1);
+   var acc=0,still=0,paused=false;setImage(image);setPalette();gl.uniform1i(U.uImg,0);gl.uniform1i(U.uRamp,1);
    var reduce=window.matchMedia&&matchMedia("(prefers-reduced-motion: reduce)").matches;
    var W=0,H=0,dpr=1;
    function resize(){dpr=Math.min(window.devicePixelRatio||1,S.quality);var r=canvas.getBoundingClientRect();W=Math.max(1,Math.round(r.width*dpr));H=Math.max(1,Math.round(r.height*dpr));if(canvas.width!==W||canvas.height!==H){canvas.width=W;canvas.height=H;}gl.viewport(0,0,W,H);}
    var ro=window.ResizeObserver?new ResizeObserver(resize):null;if(ro)ro.observe(canvas);else window.addEventListener("resize",resize);resize();
    var visible=true;
    if(opts.observe&&window.IntersectionObserver){new IntersectionObserver(function(e){visible=e[0].isIntersecting;},{rootMargin:"100px"}).observe(canvas);}
-   var acc=0,still=0,paused=false,clock=0,last=performance.now(),raf=0,frames=0,fpsT=last;
+   var clock=0,last=performance.now(),raf=0,frames=0,fpsT=last;
    function clamp(v,a,b){return Math.max(a,Math.min(b,v));}
    function frame(now){raf=requestAnimationFrame(frame);acc+=(now-last)/1000;last=now;if(!visible)return;if(S.fps&&acc<1/S.fps-.004)return;var dt=Math.min(.1,acc);acc=0;
     if(paused){if(still)return;still=1;}else{still=0;clock+=dt*(reduce?0.25:1);}
-    var fx0,fy0,fw,fh;if(opts.fit){var F=opts.fit();if(!F)return;fx0=F[0]*dpr;fy0=F[1]*dpr;fw=F[2]*dpr;fh=F[3]*dpr;}else{var pad=opts.pad||0,sc=Math.min((W-pad*2*dpr)/iw,(H-pad*2*dpr)/ih);fw=iw*sc;fh=ih*sc;fx0=(W-fw)/2;fy0=(H-fh)/2;}
-    gl.uniform2f(U.uRes,W,H);gl.uniform4f(U.uFit,fx0,fy0,fw,fh);gl.uniform2f(U.uTexel,1/iw,1/ih);
+    var B;if(opts.fit){var F=opts.fit();if(!F)return;B=[F[0]*dpr,F[1]*dpr,F[2]*dpr,F[3]*dpr];}else{var pad=(opts.pad||0)*dpr;B=[pad,pad,W-2*pad,H-2*pad];}
+    var FA=contain(B[0],B[1],B[2],B[3],iw,ih);
+    gl.uniform2f(U.uRes,W,H);gl.uniform4f(U.uFit,FA[0],FA[1],FA[2],FA[3]);gl.uniform2f(U.uTexel,1/iw,1/ih);
     gl.uniform1f(U.uTime,clock);gl.uniform1f(U.uDpr,dpr);
     gl.uniform1f(U.uLight,S.light);gl.uniform1f(U.uTint,S.tint);gl.uniform1f(U.uClarity,S.clarity);
     gl.uniform1f(U.uSpeed,clamp(S.speed,0,1));gl.uniform1f(U.uFlow,S.flow);gl.uniform1f(U.uFlowScale,S.flowScale);
@@ -621,7 +654,10 @@ var createShader=(function(){
     /* the GPU canvas covers the picture only, never the sparkle margin around it */
     canvas.style.cssText = 'position:absolute;left:0;top:0;width:1px;height:1px;z-index:1;display:block;opacity:0;transition:opacity .9s ease' + (overlay ? ';mix-blend-mode:screen' : '');
     var rec = { fx: null, visible: false, seen: 0 };
-    var showImg = function () { if (!overlay) img.style.visibility = ''; };
+    /* hide the original with a filter, not visibility, so screen readers keep its alt text and taps still reach it */
+    var origFilter = img.style.filter;
+    var hideImg = function () { img.style.filter = 'opacity(0)'; };
+    var showImg = function () { if (!overlay) img.style.filter = origFilter; };
     var q = function () { var budget = Math.sqrt(S.maxPixels / Math.max(1, ov.w * ov.h)); return Math.max(.5, Math.min(S.quality, P.perf.scale([S.quality, 1.5, 1]), budget)); };
     var lastQ = 0;
     function resize() {
@@ -641,7 +677,7 @@ var createShader=(function(){
           rec.fx = createShader(canvas, tex, opts, {
             overlay: overlay,
             fit: function () { return [0, 0, ov.w, ov.h]; },
-            onFirstFrame: function () { canvas.style.opacity = 1; if (!overlay) img.style.visibility = 'hidden'; },
+            onFirstFrame: function () { canvas.style.opacity = 1; if (!overlay) hideImg(); },
             onLost: function () { rec.fx = null; canvas.style.opacity = 0; showImg(); },
             onError: showImg,
           });
@@ -657,7 +693,7 @@ var createShader=(function(){
       settings: S, overlay: ov, kind: 'statue', defaults: P.STATUE_DEFAULTS,
       set: function (k, v) {
         S[k] = v;
-        if (k === 'mode') { overlay = v !== 'replace'; rec.release(); canvas.style.mixBlendMode = overlay ? 'screen' : ''; if (rec.visible) show(); return; }
+        if (k === 'mode') { overlay = v !== 'replace'; rec.release(); img.style.filter = origFilter; canvas.style.mixBlendMode = overlay ? 'screen' : ''; if (rec.visible) show(); return; }
         if (rec.fx) rec.fx.set(k, (k === 'quality' || k === 'maxPixels') ? (lastQ = q()) : v);
       },
       reconfigure: function (next) {
@@ -677,7 +713,7 @@ var createShader=(function(){
 /* ════════════════════════════════════════════════════════════════════
    Prism · Sparkle
    Four-point glints on the cutout's outline, floating dust, a soft halo
-   hugging the shape, bloom, and lens flares and reflections.
+   hugging the shape, bloom, and lens flares (the rays of coloured light).
    Mark an image:  data-prism="liberty"           (statue + sparkle)
                    data-prism-sparkle="liberty"   (sparkle only)
    Built for transparent cutouts: glints follow the transparent edge.
@@ -689,12 +725,16 @@ var createShader=(function(){
 
   P.SPARKLE_DEFAULTS = {
     glints: 52, glintSize: 95, glintStr: 85,    // count 0–160, size px (at an 800px-tall image), strength 0–100
-    dust: 90, dustStr: 55, dustSpread: 1.15,    // count 0–400, strength 0–100, how far it floats (× image size)
+    dust: 90, dustStr: 55, dustSpread: 1.15,    // count 0–1000, strength 0–100, how far it floats (× image size)
+    dustSize: 1,                                // size of each speck (× normal)
     glintRate: .45,                             // twinkle per second, capped at 1
     warmth: 72,                                 // % of sparkles that are gold rather than icy
     halo: 50,                                   // soft light hugging the outline, 0–100
     bloom: 45,                                  // glow at the light's source, 0–60
-    flares: 6, flareStr: 42, ghosts: 3, ghostStr: 22,
+    flares: 6, flareStr: 42,                    // rays of coloured light: count 0–24, strength 0–100
+    flarePal: 'crystal',                        // crystal | warm | cool | spectrum | white
+    flareHue: 0, flareSat: 100,                 // turn every ray's colour (degrees), and how rich it is (%)
+    flareLen: 1, flareWidth: 1, flareSpin: .9,  // ray length and width (× normal), and turn speed (degrees per second)
     origin: { x: .5, y: .36 },                  // where the light comes from, on the image (0–1)
     fadeIn: 1200, seed: 8,
     quality: 1.25,       // pixel density cap: dust and flares are soft, so they don't need full retina
@@ -707,13 +747,22 @@ var createShader=(function(){
   P.IMAGE_DEFAULTS.sparkle = P.SPARKLE_DEFAULTS;
 
   var CORE = U.hsl(40, 70, 96), AMBER = U.hsl(34, 100, 60);
-  var CRYS = { white: [97, .02, 80], gold: [88, .1, 85], amber: [76, .13, 60], blue: [58, .17, 259], violet: [60, .16, 291], cyan: [80, .11, 211] };
-  var crys = function (k, a) { var c = CRYS[k]; return U.ok(c[0], c[1], c[2], a); };
-  var crysA = function (k, a) { var c = CRYS[k]; return U.oklch(c[0] / 100, c[1], c[2]).concat([a]); };
+  var CRYS = { white: [97, .02, 80], gold: [88, .1, 85], amber: [76, .13, 60], blue: [58, .17, 259], violet: [60, .16, 291], cyan: [80, .11, 211],
+    red: [64, .2, 28], green: [82, .15, 145], magenta: [64, .2, 335], pearl: [93, .04, 250] };
+  /* each ray palette is four rays of three colours, inner to outer */
+  var FLARE_PALS = {
+    crystal:  [['blue', 'violet', 'blue'], ['cyan', 'blue', 'violet'], ['violet', 'blue', 'cyan'], ['amber', 'gold', 'amber']],
+    warm:     [['amber', 'gold', 'white'], ['gold', 'amber', 'gold'], ['white', 'gold', 'amber'], ['amber', 'white', 'gold']],
+    cool:     [['blue', 'cyan', 'pearl'], ['violet', 'blue', 'cyan'], ['cyan', 'pearl', 'blue'], ['blue', 'violet', 'blue']],
+    spectrum: [['red', 'amber', 'gold'], ['gold', 'green', 'cyan'], ['cyan', 'blue', 'violet'], ['violet', 'magenta', 'red']],
+    white:    [['white', 'pearl', 'white'], ['pearl', 'white', 'gold'], ['white', 'white', 'pearl'], ['gold', 'white', 'pearl']],
+  };
+  P.FLARE_PALETTES = Object.keys(FLARE_PALS);
+  var crysA = function (k, a, hue, sat) { var c = CRYS[k]; return U.oklch(c[0] / 100, c[1] * (sat == null ? 1 : sat), c[2] + (hue || 0)).concat([a]); };
   var NONE = [0, 0, 0, 0];
 
   /* sprites are shared by every image */
-  var STAR_W = null, STAR_C = null, FLARE = null;
+  var STAR_W = null, STAR_C = null, DUST_W = null, DUST_C = null, FLARES = {};
   function starSprite(core, halo) {
     var N = 160, c = U.cv(N, N), x = c.getContext('2d'), img = x.createImageData(N, N), d = img.data, m = N / 2;
     for (var j = 0; j < N; j++) for (var i = 0; i < N; i++) {
@@ -755,8 +804,22 @@ var createShader=(function(){
     if (STAR_W) return;
     STAR_W = starSprite([1, .98, .93], U.oklch(.76, .13, 60));
     STAR_C = starSprite([.95, .97, 1], U.oklch(.68, .13, 250));
-    var L = [['blue', 'violet', 'blue'], ['cyan', 'blue', 'violet'], ['violet', 'blue', 'cyan'], ['amber', 'gold', 'amber']], r = U.rng(8 * 7 + 12);
-    FLARE = L.map(function (v) { var p0 = .18 + r() * .12; return wedge(256, 48, [[p0, NONE], [.42, crysA(v[0], .85)], [.58, crysA(v[1], .95)], [.74, crysA(v[2], .7)], [.94, NONE]]); });
+    DUST_W = dustSprite([1, .98, .93], U.oklch(.76, .13, 60));
+    DUST_C = dustSprite([.95, .97, 1], U.oklch(.68, .13, 250));
+  }
+  /* dust uses its own tiny sprite: drawing hundreds of small dots from a small source is far cheaper */
+  function dustSprite(core, halo) {
+    var N = 24, c = U.cv(N, N), x = c.getContext('2d'), m = N / 2, g = x.createRadialGradient(m, m, 0, m, m, m);
+    g.addColorStop(0, U.rgba(core, 1)); g.addColorStop(.18, U.rgba(core, .9)); g.addColorStop(.45, U.rgba(halo, .35)); g.addColorStop(1, U.rgba(halo, 0));
+    x.fillStyle = g; x.fillRect(0, 0, N, N); return c;
+  }
+  /* ray sprites for a palette, turned and saturated as asked; shared by every image using the same colours */
+  function flareSprites(pal, hue, sat) {
+    var key = pal + '|' + Math.round(hue) + '|' + Math.round(sat);
+    if (FLARES[key]) return FLARES[key];
+    var L = FLARE_PALS[pal] || FLARE_PALS.crystal, r = U.rng(8 * 7 + 12), k = sat / 100;
+    FLARES[key] = L.map(function (v) { var p0 = .18 + r() * .12; return wedge(192, 40, [[p0, NONE], [.42, crysA(v[0], .85, hue, k)], [.58, crysA(v[1], .95, hue, k)], [.74, crysA(v[2], .7, hue, k)], [.94, NONE]]); });
+    return FLARES[key];
   }
 
   function mount(img, settings) {
@@ -772,21 +835,22 @@ var createShader=(function(){
     front.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;mix-blend-mode:screen';
     wrap.appendChild(front);
     var fx = front.getContext('2d'), dpr = U.dpr(S.quality), acc = 0;
-    var t = 0, running = false, EDGES = [], HALO = null, HM = .2, GL = [], DU = [], FL = [], GH = [];
+    var t = 0, running = false, EDGES = [], HALO = null, HM = .2, GL = [], DU = [], FL = [], FS = null;
+    var MAX_DUST = 1000;
 
     function seed() {
       var r = U.rng(S.seed * 7 + 13);
       GL = Array.from({ length: 160 }, function () { return { e: r(), ph: r(), sp: .6 + r() * .8, s: r(), rot: (r() - .5) * .5, warm: r(), a: r() * Math.PI * 2, d: .15 + r() * .5 }; });
-      DU = Array.from({ length: 400 }, function () { return { a: r() * Math.PI * 2, d: Math.pow(r(), .6), ph: r(), sp: .4 + r() * .9, s: .3 + r() * .7, warm: r() }; });
-      var rf = U.rng(S.seed * 7 + 8), rh = U.rng(S.seed * 7 + 9);
-      FL = Array.from({ length: Math.round(S.flares) }, function () { return { a: rf() * Math.PI * 2, len: .45 + rf() * .7, w: 5 + rf() * 12, s: .4 + rf() * .6, t: rf(), v: Math.floor(rf() * 4) }; });
-      var gA = rh() * Math.PI * 2;
-      GH = Array.from({ length: Math.round(S.ghosts) }, function () { return { a: gA, dist: rh() * 1.6 - .5, size: 24 + rh() * 130, s: .35 + rh() * .65, t: rh() }; });
+      DU = Array.from({ length: MAX_DUST }, function () { return { a: r() * Math.PI * 2, d: Math.pow(r(), .6), ph: r(), sp: .4 + r() * .9, s: .3 + r() * .7, warm: r() }; });
+      var rf = U.rng(S.seed * 7 + 8);
+      FL = Array.from({ length: Math.min(24, Math.round(S.flares)) }, function () { return { a: rf() * Math.PI * 2, len: .45 + rf() * .7, w: 5 + rf() * 12, s: .4 + rf() * .6, t: rf(), v: Math.floor(rf() * 4) }; });
+      FS = flareSprites(S.flarePal, S.flareHue, S.flareSat);
     }
     /* find the cutout's outline once: glints sit on it, the halo is a blurred copy of it */
     function edges(tex) {
       try {
-        var sc = Math.min(1, 700 / Math.max(tex.naturalWidth, tex.naturalHeight)), w = Math.max(8, Math.round(tex.naturalWidth * sc)), h = Math.max(8, Math.round(tex.naturalHeight * sc));
+        var tw = tex.naturalWidth || tex.width, th = tex.naturalHeight || tex.height;
+        var sc = Math.min(1, 700 / Math.max(tw, th)), w = Math.max(8, Math.round(tw * sc)), h = Math.max(8, Math.round(th * sc));
         var c = U.cv(w, h), x = c.getContext('2d', { willReadFrequently: true }); x.drawImage(tex, 0, 0, w, h);
         var px = x.getImageData(0, 0, w, h).data, al = function (i, j) { return (i < 0 || j < 0 || i >= w || j >= h) ? 0 : px[(j * w + i) * 4 + 3]; }, pts = [], T = 120;
         for (var j = 1; j < h - 1; j++) for (var i = 1; i < w - 1; i++) {
@@ -851,20 +915,10 @@ var createShader=(function(){
       /* flares: faint streaks of spectrum caught in the crystal */
       FL.forEach(function (F) {
         var ap = U.easeOut(clamp((t - e0 - rr * .8 - F.t * rr) / rr, 0, 1)); if (ap <= 0) return;
-        var s = S.flareStr / 100 * F.s * ap, len = Lfar * F.len * (.6 + .4 * ap), h = 2 * len * Math.tan(U.rad(F.w) / 2), th = F.a + U.rad(3) * t * .3, im = FLARE[F.v];
+        var s = S.flareStr / 100 * F.s * ap, len = Lfar * F.len * S.flareLen * (.6 + .4 * ap), h = 2 * len * Math.tan(U.rad(F.w * S.flareWidth) / 2), th = F.a + U.rad(S.flareSpin) * t, im = FS[F.v];
         var a = Math.cos(th), b = Math.sin(th), sx = len / im.width, sy = h / im.height;
         fx.globalAlpha = clamp(s, 0, 1); fx.setTransform(dpr * a * sx, dpr * b * sx, -dpr * b * sy, dpr * a * sy, dpr * ox, dpr * oy); fx.drawImage(im, 0, -im.height / 2);
       });
-      /* ghosts: faint lens reflections strung along one line */
-      if (GH.length) {
-        fx.setTransform(dpr, 0, 0, dpr, 0, 0); var kk = Math.min(W, H) / 800;
-        GH.forEach(function (G) {
-          var ap = U.easeOut(clamp((t - e0 - rr - G.t * .6) / rr, 0, 1)), s = S.ghostStr / 100 * G.s * ap; if (s < .003) return;
-          var dist = G.dist * Lfar * .55, r = G.size * kk / 2, cx = ox + Math.cos(G.a) * dist, cy = oy + Math.sin(G.a) * dist, gg = fx.createRadialGradient(cx, cy, 0, cx, cy, r);
-          gg.addColorStop(0, crys('blue', .1)); gg.addColorStop(.48, crys('blue', .12)); gg.addColorStop(.6, crys('amber', .7)); gg.addColorStop(.67, crys('white', .6)); gg.addColorStop(.74, crys('blue', .6)); gg.addColorStop(.81, crys('violet', .5)); gg.addColorStop(.9, 'rgba(0,0,0,0)');
-          fx.globalAlpha = s; fx.fillStyle = gg; fx.fillRect(cx - r, cy - r, 2 * r, 2 * r);
-        });
-      }
       /* glints on the outline */
       var dens = P.perf.scale([1, .7, .45]), nG = Math.min(GL.length, Math.round(S.glints * dens)), gs = S.glintStr / 100;
       for (var i = 0; i < nG && gs > .003; i++) {
@@ -880,7 +934,7 @@ var createShader=(function(){
         var Pd = DU[d], ib = U.easeOut(clamp((t - e0 - rr * (.6 + Pd.ph)) / rr, 0, 1)); if (ib <= 0) continue;
         var tw2 = .5 - .5 * Math.cos(2 * Math.PI * (t * rate * .7 * Pd.sp + Pd.ph));
         var dist = Pd.d * Ui * S.dustSpread * 2 * (1 + .04 * Math.sin(t * .2 + Pd.ph * 6));
-        put(Pd.warm < S.warmth / 100 ? STAR_W : STAR_C, ox + Math.cos(Pd.a) * dist, oy + Math.sin(Pd.a) * dist, (5 + Pd.s * 12) * k * (.6 + .4 * tw2), 0, ds * ib * Pd.s * (.25 + .75 * tw2));
+        put(Pd.warm < S.warmth / 100 ? DUST_W : DUST_C, ox + Math.cos(Pd.a) * dist, oy + Math.sin(Pd.a) * dist, (4 + Pd.s * 9) * k * S.dustSize * (.6 + .4 * tw2), 0, ds * ib * Pd.s * (.25 + .75 * tw2));
       }
     }
     var layer = {
@@ -901,7 +955,8 @@ var createShader=(function(){
         for (var k in sp) if (JSON.stringify(sp[k]) !== JSON.stringify(S[k])) api.set(k, sp[k]);
         if (next.pad != null) ov.padScale = next.pad;
       },
-      set: function (k, v) { if (k === 'origin') S.origin = v; else S[k] = v; if (k === 'quality' || k === 'maxPixels') resize(); if (k === 'flares' || k === 'ghosts' || k === 'seed') seed(); if (k === 'seed') { EDGES = []; HALO = null; ov.load().then(edges, function () {}); } },
+      set: function (k, v) { if (k === 'origin') S.origin = v; else S[k] = v; if (k === 'quality' || k === 'maxPixels') resize(); if (k === 'flares' || k === 'seed') seed();
+        if (/^flare(Pal|Hue|Sat)$/.test(k)) { clearTimeout(api._fs); api._fs = setTimeout(function () { FS = flareSprites(S.flarePal, S.flareHue, S.flareSat); }, 40); } if (k === 'seed') { EDGES = []; HALO = null; ov.load().then(edges, function () {}); } },
       replay: function () { t = 0; },
       destroy: function () { ov.remove(layer); running = false; if (img.__prism) img.__prism.sparkle = undefined; },
     };

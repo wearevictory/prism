@@ -1,10 +1,10 @@
-# Prism FX v2.1.2
+# Prism FX v2.3.0
 
 Three separate effects for Webflow, switched on with custom attributes and tuned from one JSON settings block:
 
 - **Aurora:** the slow-turning fan of colour. It goes on any section you mark, and each section gets its own.
 - **Statue:** refracted light flowing over a transparent cutout, drawn on the GPU.
-- **Sparkle:** glints on the cutout's outline, floating dust, a halo around the shape, bloom, and lens flares and reflections.
+- **Sparkle:** floating dust, rays of coloured light, glints on the cutout's outline, a halo around the shape, and bloom.
 
 The needle rays, pulse and intro ring from the studies have been removed.
 
@@ -14,8 +14,9 @@ The needle rays, pulse and intro ring from the studies have been removed.
 src/prism-core.js      shared helpers, settings, one animation loop, image overlay, start-up   (load first)
 src/prism-aurora.js    Aurora tab
 src/prism-statue.js    Statue tab (GPU shader)
-src/prism-sparkle.js   Sparkle tab (glints, dust, halo, bloom, flares, ghosts)
-dist/prism.min.js      all four in one file: 39 KB, about 16 KB compressed
+src/prism-sparkle.js   Sparkle tab (dust, rays, glints, halo, bloom)
+dist/prism.min.js      aurora, statue and sparkle in one file: 42 KB, about 17 KB compressed
+dist/prism-tuner.min.js  the tuner; loads only with ?prism-tune, so visitors never download it
 src/prism-tuner.js     the on-page tuner (never loads for visitors)
 dist/*.min.js          each module on its own
 examples/              a local test page and copy-paste Webflow snippets
@@ -27,11 +28,11 @@ For a single file, use `dist/prism.min.js`. To load only some effects, load `pri
 ## Publishing on GitHub and jsDelivr
 
 1. Push this folder to a **public** GitHub repo.
-2. Create a version tag: `git tag v2.1.2 && git push --tags`, or use a GitHub Release.
+2. Create a version tag: `git tag v2.3.0 && git push --tags`, or use a GitHub Release.
 3. The script URL is:
-   `https://cdn.jsdelivr.net/gh/YOUR-USER/YOUR-REPO@v2.1.2/dist/prism.min.js`
+   `https://cdn.jsdelivr.net/gh/YOUR-USER/YOUR-REPO@v2.3.0/dist/prism.min.js`
 
-Tag each new release (`v2.1.3`, `v2.2.0`…) and change the version in the URL. Links to a branch like `@main` are cached for hours, so your changes look like they aren't arriving. If you have to refresh a URL, open `https://purge.jsdelivr.net/gh/YOUR-USER/YOUR-REPO@v2.1.2/dist/prism.min.js`.
+Tag each new release (`v2.3.1`, `v2.4.0`…) and change the version in the URL. Links to a branch like `@main` are cached for hours, so your changes look like they aren't arriving. If you have to refresh a URL, open `https://purge.jsdelivr.net/gh/YOUR-USER/YOUR-REPO@v2.3.0/dist/prism.min.js`.
 
 Two links that won't work as a script source: `raw.githubusercontent.com/...` and `github.com/.../blob/...`.
 
@@ -53,7 +54,7 @@ This block holds every value, so client changes happen here and the library neve
 **2. Library: Site settings › Custom code › Footer code.**
 
 ```html
-<script src="https://cdn.jsdelivr.net/gh/YOUR-USER/YOUR-REPO@v2.1.2/dist/prism.min.js" defer></script>
+<script src="https://cdn.jsdelivr.net/gh/YOUR-USER/YOUR-REPO@v2.3.0/dist/prism.min.js" defer></script>
 ```
 
 **3. Attributes, in the Designer under Element settings › Custom attributes.**
@@ -89,12 +90,15 @@ Open any page of your staging site with `?prism-tune` at the end of the URL, for
 1. Pick an element from the list, or tap **Pick** and then tap a section or image on the page.
 2. Choose which effect to edit: Aurora, Statue or Sparkle.
 3. Choose **All sizes**, **Tablet & phone**, or **Phone**. Phone-only values only show at phone width, so narrow the window or open the page on a phone to see them.
-4. Move the sliders. The real page updates live, and edited values are marked.
+4. Move the sliders. The real page updates live, and edited values are marked. Every setting explains what it does; settings that have no effect with your current values are dimmed and say so.
+   - **Double-click a setting's name** (double-tap on a phone) to undo your change. If there's nothing to undo, it goes to the library default.
+   - **Tap a number** to type an exact value.
+   - **Hold Compare** to see the element without your edits.
 5. Copy the result, in one of two ways:
    - **Only this element:** paste the value into that element's `data-prism-options` custom attribute.
    - **Every element using the preset:** replace your head code with the updated settings block.
 
-Your edits stay in that browser, so you can reload and keep going. They don't reach visitors until you paste them into Webflow and publish. `Prism.tuner.stop()` in the console closes the tuner for that tab.
+Your edits stay in that browser, so you can reload and keep going. They don't reach visitors until you paste them into Webflow and publish. `Prism.tuner.stop()` in the console closes the tuner for that tab. If you load the library under a different file name, run `Prism.tune()` in the console to open the tuner.
 
 ## Breakpoints
 
@@ -119,6 +123,7 @@ Values update live when the screen crosses a breakpoint.
 - **Pixel budgets:** the Statue's GPU canvas covers only the picture, never the sparkle margin around it. Its sharpness is capped so one image never draws more than `statue.maxPixels` (default 1.2 million). Sparkle is capped at `sparkle.maxPixels` (1.5 million) and draws at 1.25× density, because dust and flares are soft.
 - **Frame caps:** aurora, statue and sparkle redraw at `fps: 30` by default. The motion is slow, so it looks the same as 60 at half the work. Set `fps` to 24, 30 or 60 per preset. Image positions still track every frame, so Interactions stay smooth.
 - **Transparent pixels are skipped:** the light math only runs where the cutout has content.
+- **Right-sized textures:** each picture is scaled to what will actually be drawn before it goes to the GPU, never the full original.
 - **Heavy work off the critical path:** the outline tracing for Sparkle runs when the browser is idle.
 
 ## Settings reference
@@ -162,12 +167,14 @@ Anything you leave out uses the default below. Presets merge on top of `default`
 | `statue.quality` | `2` | pixel-density cap: 1 saves battery, 2 is sharp |
 | `statue.maxPixels` / `statue.fps` | `1200000` / `30` | most pixels one image may draw, and redraws per second |
 | `sparkle.glints` / `glintSize` / `glintStr` | `52` / `95` / `85` | glints on the outline: count, size, strength |
-| `sparkle.dust` / `dustStr` / `dustSpread` | `90` / `55` / `1.15` | dust: count, strength, how far it floats |
+| `sparkle.dust` / `dustStr` / `dustSpread` / `dustSize` | `90` / `55` / `1.15` / `1` | dust: count (up to 1000), brightness, how far it floats, speck size |
 | `sparkle.glintRate` | `0.45` | twinkle per second (capped at 1) |
 | `sparkle.warmth` | `72` | % of sparkles that are gold rather than icy |
 | `sparkle.halo` / `bloom` | `50` / `45` | glow around the outline, and glow at the light source |
-| `sparkle.flares` / `flareStr` | `6` / `42` | lens flares |
-| `sparkle.ghosts` / `ghostStr` | `3` / `22` | lens reflections |
+| `sparkle.flares` / `flareStr` | `6` / `42` | rays: count (up to 24), brightness |
+| `sparkle.flarePal` | `"crystal"` | ray colours: `crystal`, `warm`, `cool`, `spectrum` or `white` |
+| `sparkle.flareHue` / `flareSat` | `0` / `100` | turn the ray colours (degrees), and how rich they are (%) |
+| `sparkle.flareLen` / `flareWidth` / `flareSpin` | `1` / `1` / `0.9` | ray length, ray width, and turn speed in degrees per second |
 | `sparkle.quality` / `maxPixels` / `fps` | `1.25` / `1500000` / `30` | density cap, pixel budget, redraws per second |
 | `sparkle.origin` | `{"x":0.5,"y":0.36}` | where the light comes from on the image |
 
@@ -203,4 +210,4 @@ Prism.mount('statue', img, { statue: { light: 1.2 } });   // start by hand (use 
 
 ## Coming from v1 (prism-liberty)
 
-`[data-prism-liberty]`, `PrismLibertyConfig` and `PrismLiberty.scene` have been replaced by the attributes above. Your Lab values carry over under the same key names, except `letterGlow`, which is now `sparkle.halo`. Aurora keys go under `aurora.<preset>`, and the glint, dust, flare and ghost keys go under `image.<preset>.sparkle`.
+`[data-prism-liberty]`, `PrismLibertyConfig` and `PrismLiberty.scene` have been replaced by the attributes above. Your Lab values carry over under the same key names, except `letterGlow`, which is now `sparkle.halo`. Aurora keys go under `aurora.<preset>`, and the glint, dust and flare keys go under `image.<preset>.sparkle`.

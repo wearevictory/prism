@@ -9,7 +9,7 @@
   if (window.Prism && window.Prism.core) return;
   var P = window.Prism = window.Prism || {};
   P.core = true;
-  P.version = '2.1.2';
+  P.version = '2.3.0';
   var SCRIPT = (document.currentScript && document.currentScript.src) || '';
 
   /* ── Helpers ─────────────────────────────────────────────────────── */
@@ -36,6 +36,37 @@
     dpr: function (cap) { return Math.min(cap || 2, window.devicePixelRatio || 1); },
     idle: function (fn) { return window.requestIdleCallback ? requestIdleCallback(fn, { timeout: 600 }) : setTimeout(fn, 1); },
     warn: function () { var a = ['Prism:']; for (var i = 0; i < arguments.length; i++) a.push(arguments[i]); console.warn.apply(console, a); },
+  };
+  /* pick the smallest srcset candidate that is still sharp at this size */
+  U.pickSrc = function (img, cssWidth) {
+    var need = cssWidth * Math.min(2, window.devicePixelRatio || 1), best = null, largest = null;
+    (img.getAttribute('srcset') || '').split(',').forEach(function (part) {
+      var m = part.trim().match(/^(\S+)\s+(\d+)w$/); if (!m) return;
+      var c = { url: m[1], w: +m[2] };
+      if (!largest || c.w > largest.w) largest = c;
+      if (c.w >= need && (!best || c.w < best.w)) best = c;
+    });
+    return (best || largest || {}).url || img.getAttribute('data-prism-src') || img.currentSrc || img.src;
+  };
+  /* load a picture the GPU may read (CORS), decoded off the main thread, and scaled
+     down to what will actually be drawn: smaller uploads, less GPU memory */
+  U.prepare = function (url, maxSide) {
+    return new Promise(function (res, rej) {
+      if (!url) return rej(new Error('no image url'));
+      var t = new Image(); t.crossOrigin = 'anonymous'; t.decoding = 'async';
+      t.onload = function () {
+        (t.decode ? t.decode() : Promise.resolve()).catch(function () {}).then(function () {
+          var nw = t.naturalWidth, nh = t.naturalHeight, side = Math.max(nw, nh);
+          if (!maxSide || side <= maxSide * 1.1) return res(t);
+          var k = maxSide / side, c = U.cv(nw * k, nh * k), x = c.getContext('2d');
+          x.imageSmoothingQuality = 'high'; x.drawImage(t, 0, 0, c.width, c.height);
+          c.naturalWidth = c.width; c.naturalHeight = c.height; c.src = url;
+          res(c);
+        });
+      };
+      t.onerror = function () { U.warn('could not read the image (the host must allow CORS). The image shows without effects.', url); rej(new Error('cors')); };
+      t.src = url;
+    });
   };
   U.ok = function (L, C, h, a) { return U.rgba(U.oklch(L / 100, C, h), a == null ? 1 : a); };
   var isObj = U.isObj = function (v) { return v && typeof v === 'object' && !Array.isArray(v); };
@@ -163,18 +194,17 @@
     }
     ov.measure = function () { read(); write(0, performance.now()); return !!next; };
     /* a CORS-readable copy of the picture: the GPU and the edge finder can only read images the host allows */
-    ov.load = function () {
-      if (ov.texture) return ov.texture;
-      var src = img.getAttribute('data-prism-src') || img.currentSrc || img.src;
-      ov.texture = new Promise(function (res, rej) {
-        if (!src) return rej(new Error('image has no src'));
-        var t = new Image(); t.crossOrigin = 'anonymous'; t.decoding = 'async';
-        t.onload = function () { (t.decode ? t.decode() : Promise.resolve()).catch(function () {}).then(function () { res(t); }); };
-        t.onerror = function () { U.warn('could not read the image (the host must allow CORS). The image shows without effects.', src); rej(new Error('cors')); };
-        t.src = src;
-      });
-      return ov.texture;
+    var cache = {}, order = [];
+    var side = function () { return Math.ceil(Math.max(ov.w, ov.h, img.clientWidth, img.clientHeight, 64) * Math.min(2, window.devicePixelRatio || 1)); };
+    /* any picture for this image, prepared once and kept for the last few used */
+    ov.fetch = function (url) {
+      if (!cache[url]) { cache[url] = U.prepare(url, side()); order.push(url); }
+      if (order.length > 4) { var i = order.findIndex(function (u) { return u !== ov.current && u !== url; }); if (i >= 0) delete cache[order.splice(i, 1)[0]]; }
+      return cache[url];
     };
+    ov.current = null;
+    /* reuse the file the browser already chose for this screen, so nothing downloads twice */
+    ov.load = function () { if (!ov.texture) { ov.current = ov.current || img.getAttribute('data-prism-src') || img.currentSrc || U.pickSrc(img, img.clientWidth || 600); ov.texture = ov.fetch(ov.current); } return ov.texture; };
     ov.add = function (layer) { ov.layers.push(layer); el.appendChild(layer.el); if (ov.visible && layer.show) layer.show(); };
     ov.remove = function (layer) { var i = ov.layers.indexOf(layer); if (i >= 0) ov.layers.splice(i, 1); if (layer.hide) layer.hide(); if (layer.el && layer.el.parentNode) layer.el.parentNode.removeChild(layer.el); };
     var stopR = null, stopW = null;
@@ -225,7 +255,10 @@
   /* the on-page tuner never ships to visitors: it loads only with ?prism-tune in the URL */
   P.tune = function () {
     if (P.tuner) return P.tuner.open();
-    var src = SCRIPT ? SCRIPT.replace(/[^/]*$/, 'prism-tuner.min.js') : '';
+    /* find where the library came from (works with or without defer, and with async loaders) */
+    var from = SCRIPT;
+    if (!from) [].forEach.call(document.scripts, function (sc) { if (/\/prism(-core)?(\.min)?\.js(\?|$)/.test(sc.src)) from = sc.src; });
+    var src = from ? from.replace(/[^/?]*(\?.*)?$/, 'prism-tuner.min.js') : '';
     if (!src) { U.warn('cannot find where the library was loaded from; load prism-tuner.min.js yourself'); return; }
     var s = document.createElement('script'); s.src = src; s.defer = true; document.head.appendChild(s);
   };

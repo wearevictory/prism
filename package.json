@@ -1,0 +1,9 @@
+{
+  "name": "prism-fx",
+  "version": "2.3.0",
+  "description": "Aurora, Statue light and Sparkle effects for Webflow, driven by attributes and a JSON settings block.",
+  "main": "dist/prism.min.js",
+  "files": ["dist", "src"],
+  "scripts": { "build": "bash build.sh" },
+  "license": "UNLICENSED"
+}

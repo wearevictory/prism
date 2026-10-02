@@ -25,26 +25,25 @@ var createShader=(function(){
   "float fbm(vec2 p){float s=0.,a=.5;for(int i=0;i<3;i++){s+=a*sn(p);p=p*2.03+vec2(17.1,9.7);a*=.5;}return s;}",
   "float h21(vec2 p){p=fract(p*vec2(123.34,456.21));p+=dot(p,p+45.32);return fract(p.x*p.y);}",
   "float L(vec3 c){return dot(c,vec3(.2126,.7152,.0722));}",
-  "vec3 img(vec2 u){return texture2D(uImg,u).rgb;}","float alp(vec2 u){return texture2D(uImg,u).a;}",
+  "float box(vec2 u){return step(0.,u.x)*step(u.x,1.)*step(0.,u.y)*step(u.y,1.);}",
+  "vec4 tA(vec2 px){vec2 u=(px-uFit.xy)/uFit.zw;return texture2D(uImg,clamp(u,0.,1.))*box(u);}",
+  "vec4 T(vec2 px){return tA(px);}",
   "vec3 ramp(float x){return texture2D(uRamp,vec2(fract(x),.5)).rgb;}",
   "float band(float x){return pow(.5+.5*cos(6.2831853*x),uSharp);}",
   "void main(){",
   " vec2 pix=vec2(gl_FragCoord.x,uRes.y-gl_FragCoord.y);",
-  " vec2 uv=(pix-uFit.xy)/uFit.zw;",
-  " float inside=step(0.,uv.x)*step(uv.x,1.)*step(0.,uv.y)*step(uv.y,1.);",
-  " uv=clamp(uv,0.,1.);",
-  " float A=alp(uv)*inside;",
-  " vec3 base=img(uv)*inside;",
+  " float inside=1.;",
+  " vec4 c0=T(pix);float A=c0.a;vec3 base=c0.rgb;",
   " vec3 light=vec3(0.),tinted=vec3(0.);float lum=0.,warp=0.,t=uTime;",
   " if(A>.003){",   
-  " vec2 o=uTexel*1.25;",
-  " vec3 n1=img(uv+vec2(o.x,0.)),n2=img(uv-vec2(o.x,0.)),n3=img(uv+vec2(0.,o.y)),n4=img(uv-vec2(0.,o.y));",
+  " vec2 o=vec2(uFit.z*uTexel.x,uFit.w*uTexel.y)*1.25;",
+  " vec3 n1=T(pix+vec2(o.x,0.)).rgb,n2=T(pix-vec2(o.x,0.)).rgb,n3=T(pix+vec2(0.,o.y)).rgb,n4=T(pix-vec2(0.,o.y)).rgb;",
   " vec3 blur=(n1+n2+n3+n4)*.25;",
   " base=max(base+(base-blur)*uClarity*1.6*inside,0.)*inside;",
   "  lum=L(base);",
   " float gx=L(n1)-L(n2),gy=L(n3)-L(n4);",
   " float edge=clamp(length(vec2(gx,gy))*3.5,0.,1.);",
-    " vec2 p=(pix-uFit.xy)/uFit.w;",
+    " vec2 p=pix/uRes.y;",
   " vec2 dir=vec2(cos(uAngle),sin(uAngle));",
   " vec2 q=p*uFlowScale;",
   " vec2 w=vec2(fbm(q+vec2(0.,t*.13)),fbm(q+vec2(5.2,1.3)-vec2(t*.11,0.)));",
@@ -70,9 +69,7 @@ var createShader=(function(){
   "   float h=h21(c);",
   "   if(h>uGlitter*.4)continue;",
   "   vec2 ctr=(c+vec2(h21(c+3.1),h21(c+7.7)))*cs;",
-  "   vec2 cu=(ctr-uFit.xy)/uFit.zw;",
-  "   float gate=step(0.,cu.x)*step(cu.x,1.)*step(0.,cu.y)*step(cu.y,1.);",
-  "   gate*=smoothstep(uThresh+.05,uThresh+.35,L(img(clamp(cu,0.,1.))));",
+  "   float gate=smoothstep(uThresh+.05,uThresh+.35,L(T(ctr).rgb));",
   "   float tw=.5+.5*sin(t*6.2831853*uTwinkle*(.55+.45*h21(c+1.3))+h21(c+9.1)*6.2831853);",
   "   tw=tw*tw*tw*tw*tw*tw;",
   "   vec2 dd=pix-ctr;float r=cs*(.45+.6*h21(c+4.4));",
@@ -131,21 +128,24 @@ var createShader=(function(){
    var tImg=tex();gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);
    var tRamp=tex();gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.REPEAT);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);
    var iw=1,ih=1;
-   function setImage(im){iw=im.naturalWidth||im.width;ih=im.naturalHeight||im.height;gl.activeTexture(gl.TEXTURE0);gl.bindTexture(gl.TEXTURE_2D,tImg);gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL,true);gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,im);gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL,false);}
+   function upload(unit,t,im){gl.activeTexture(unit);gl.bindTexture(gl.TEXTURE_2D,t);gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL,true);gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,im);gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL,false);}
+   function setImage(im){iw=im.naturalWidth||im.width;ih=im.naturalHeight||im.height;upload(gl.TEXTURE0,tImg,im);still=0;}
+   function contain(bx,by,bw,bh,tw,th){var s=Math.min(bw/tw,bh/th),w=tw*s,h=th*s;return[bx+(bw-w)/2,by+(bh-h)/2,w,h];}
    function setPalette(){var p=PALETTES[S.palette]||PALETTES.prism;gl.activeTexture(gl.TEXTURE1);gl.bindTexture(gl.TEXTURE_2D,tRamp);gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,256,1,0,gl.RGBA,gl.UNSIGNED_BYTE,rampData(p.stops));}
-   setImage(image);setPalette();gl.uniform1i(U.uImg,0);gl.uniform1i(U.uRamp,1);
+   var acc=0,still=0,paused=false;setImage(image);setPalette();gl.uniform1i(U.uImg,0);gl.uniform1i(U.uRamp,1);
    var reduce=window.matchMedia&&matchMedia("(prefers-reduced-motion: reduce)").matches;
    var W=0,H=0,dpr=1;
    function resize(){dpr=Math.min(window.devicePixelRatio||1,S.quality);var r=canvas.getBoundingClientRect();W=Math.max(1,Math.round(r.width*dpr));H=Math.max(1,Math.round(r.height*dpr));if(canvas.width!==W||canvas.height!==H){canvas.width=W;canvas.height=H;}gl.viewport(0,0,W,H);}
    var ro=window.ResizeObserver?new ResizeObserver(resize):null;if(ro)ro.observe(canvas);else window.addEventListener("resize",resize);resize();
    var visible=true;
    if(opts.observe&&window.IntersectionObserver){new IntersectionObserver(function(e){visible=e[0].isIntersecting;},{rootMargin:"100px"}).observe(canvas);}
-   var acc=0,still=0,paused=false,clock=0,last=performance.now(),raf=0,frames=0,fpsT=last;
+   var clock=0,last=performance.now(),raf=0,frames=0,fpsT=last;
    function clamp(v,a,b){return Math.max(a,Math.min(b,v));}
    function frame(now){raf=requestAnimationFrame(frame);acc+=(now-last)/1000;last=now;if(!visible)return;if(S.fps&&acc<1/S.fps-.004)return;var dt=Math.min(.1,acc);acc=0;
     if(paused){if(still)return;still=1;}else{still=0;clock+=dt*(reduce?0.25:1);}
-    var fx0,fy0,fw,fh;if(opts.fit){var F=opts.fit();if(!F)return;fx0=F[0]*dpr;fy0=F[1]*dpr;fw=F[2]*dpr;fh=F[3]*dpr;}else{var pad=opts.pad||0,sc=Math.min((W-pad*2*dpr)/iw,(H-pad*2*dpr)/ih);fw=iw*sc;fh=ih*sc;fx0=(W-fw)/2;fy0=(H-fh)/2;}
-    gl.uniform2f(U.uRes,W,H);gl.uniform4f(U.uFit,fx0,fy0,fw,fh);gl.uniform2f(U.uTexel,1/iw,1/ih);
+    var B;if(opts.fit){var F=opts.fit();if(!F)return;B=[F[0]*dpr,F[1]*dpr,F[2]*dpr,F[3]*dpr];}else{var pad=(opts.pad||0)*dpr;B=[pad,pad,W-2*pad,H-2*pad];}
+    var FA=contain(B[0],B[1],B[2],B[3],iw,ih);
+    gl.uniform2f(U.uRes,W,H);gl.uniform4f(U.uFit,FA[0],FA[1],FA[2],FA[3]);gl.uniform2f(U.uTexel,1/iw,1/ih);
     gl.uniform1f(U.uTime,clock);gl.uniform1f(U.uDpr,dpr);
     gl.uniform1f(U.uLight,S.light);gl.uniform1f(U.uTint,S.tint);gl.uniform1f(U.uClarity,S.clarity);
     gl.uniform1f(U.uSpeed,clamp(S.speed,0,1));gl.uniform1f(U.uFlow,S.flow);gl.uniform1f(U.uFlowScale,S.flowScale);
@@ -204,7 +204,10 @@ var createShader=(function(){
     /* the GPU canvas covers the picture only, never the sparkle margin around it */
     canvas.style.cssText = 'position:absolute;left:0;top:0;width:1px;height:1px;z-index:1;display:block;opacity:0;transition:opacity .9s ease' + (overlay ? ';mix-blend-mode:screen' : '');
     var rec = { fx: null, visible: false, seen: 0 };
-    var showImg = function () { if (!overlay) img.style.visibility = ''; };
+    /* hide the original with a filter, not visibility, so screen readers keep its alt text and taps still reach it */
+    var origFilter = img.style.filter;
+    var hideImg = function () { img.style.filter = 'opacity(0)'; };
+    var showImg = function () { if (!overlay) img.style.filter = origFilter; };
     var q = function () { var budget = Math.sqrt(S.maxPixels / Math.max(1, ov.w * ov.h)); return Math.max(.5, Math.min(S.quality, P.perf.scale([S.quality, 1.5, 1]), budget)); };
     var lastQ = 0;
     function resize() {
@@ -224,7 +227,7 @@ var createShader=(function(){
           rec.fx = createShader(canvas, tex, opts, {
             overlay: overlay,
             fit: function () { return [0, 0, ov.w, ov.h]; },
-            onFirstFrame: function () { canvas.style.opacity = 1; if (!overlay) img.style.visibility = 'hidden'; },
+            onFirstFrame: function () { canvas.style.opacity = 1; if (!overlay) hideImg(); },
             onLost: function () { rec.fx = null; canvas.style.opacity = 0; showImg(); },
             onError: showImg,
           });
@@ -240,7 +243,7 @@ var createShader=(function(){
       settings: S, overlay: ov, kind: 'statue', defaults: P.STATUE_DEFAULTS,
       set: function (k, v) {
         S[k] = v;
-        if (k === 'mode') { overlay = v !== 'replace'; rec.release(); canvas.style.mixBlendMode = overlay ? 'screen' : ''; if (rec.visible) show(); return; }
+        if (k === 'mode') { overlay = v !== 'replace'; rec.release(); img.style.filter = origFilter; canvas.style.mixBlendMode = overlay ? 'screen' : ''; if (rec.visible) show(); return; }
         if (rec.fx) rec.fx.set(k, (k === 'quality' || k === 'maxPixels') ? (lastQ = q()) : v);
       },
       reconfigure: function (next) {
