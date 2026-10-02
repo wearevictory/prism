@@ -1,394 +1,149 @@
-# Prism Liberty
+# Prism FX v2
 
-A lightweight WebGL prismatic lighting effect for images.
+Three separate effects for Webflow, switched on with custom attributes and tuned from one JSON settings block:
 
-Prism Liberty combines animated light, refraction, aurora, glow, sparkle, grain, and shader-based image treatment into a reusable JavaScript library designed to work easily with Webflow or any standard HTML page.
+- **Aurora:** the slow-turning fan of colour. It goes on any section you mark, and each section gets its own.
+- **Statue:** refracted light flowing over a transparent cutout, drawn on the GPU.
+- **Sparkle:** glints on the cutout's outline, floating dust, a halo around the shape, bloom, and lens flares and reflections.
 
-## Installation
+The needle rays, pulse and intro ring from the studies have been removed.
 
-Prism Liberty can be loaded directly through jsDelivr.
+## Files
+
+```
+src/prism-core.js      shared helpers, settings, one animation loop, image overlay, start-up   (load first)
+src/prism-aurora.js    Aurora tab
+src/prism-statue.js    Statue tab (GPU shader)
+src/prism-sparkle.js   Sparkle tab (glints, dust, halo, bloom, flares, ghosts)
+dist/prism.min.js      all four in one file, about 34 KB (14 KB compressed)
+dist/*.min.js          each module on its own
+examples/              a local test page and copy-paste Webflow snippets
+```
+
+For a single file, use `dist/prism.min.js`. To load only some effects, load `prism-core.min.js` first, then any of the others.
+
+## Publishing on GitHub and jsDelivr
+
+1. Push this folder to a **public** GitHub repo.
+2. Create a version tag: `git tag v2.0.0 && git push --tags`, or use a GitHub Release.
+3. The script URL is:
+   `https://cdn.jsdelivr.net/gh/YOUR-USER/YOUR-REPO@v2.0.0/dist/prism.min.js`
+
+Tag each new release (`v2.0.1`, `v2.0.2`…) and change the version in the URL. Links to a branch like `@main` are cached for hours, so your changes look like they aren't arriving. If you have to refresh a URL, open `https://purge.jsdelivr.net/gh/YOUR-USER/YOUR-REPO@v2.0.0/dist/prism.min.js`.
+
+Two links that won't work as a script source: `raw.githubusercontent.com/...` and `github.com/.../blob/...`.
+
+## Webflow setup
+
+**1. Settings: Site settings › Custom code › Head code.**
 
 ```html
-<script src="https://cdn.jsdelivr.net/gh/YOUR-USERNAME/prism-liberty@v1.0.0/prism-liberty.js"></script>
-```
-
-Replace `YOUR-USERNAME` with the GitHub account that owns the repository.
-
-For development, you can reference the latest version from your main branch:
-
-```html
-<script src="https://cdn.jsdelivr.net/gh/YOUR-USERNAME/prism-liberty@main/prism-liberty.js"></script>
-```
-
-For production, use a tagged release such as `v1.0.0`.
-
----
-
-## Basic Usage
-
-Add the `data-prism-liberty` attribute to an element:
-
-```html
-<div data-prism-liberty>
-  <script type="application/json">
-    {
-      "image": "https://example.com/image.png"
-    }
-  </script>
-</div>
-```
-
-Prism Liberty automatically detects and initializes elements containing:
-
-```html
-data-prism-liberty
-```
-
-No additional initialization JavaScript is required.
-
----
-
-## Webflow
-
-### 1. Load Prism Liberty
-
-In:
-
-**Site Settings → Custom Code → Before `</body>`**
-
-add:
-
-```html
-<script src="https://cdn.jsdelivr.net/gh/YOUR-USERNAME/prism-liberty@v1.0.0/prism-liberty.js"></script>
-```
-
-This only needs to be added once.
-
-### 2. Create the Prism container
-
-Add a Webflow Embed:
-
-```html
-<div data-prism-liberty>
-  <script type="application/json">
-    {
-      "image": "YOUR_IMAGE_URL"
-    }
-  </script>
-</div>
-```
-
-Replace `YOUR_IMAGE_URL` with your Webflow-hosted image URL.
-
----
-
-## Configuration
-
-Each Prism Liberty instance can contain its own JSON configuration.
-
-```html
-<div data-prism-liberty>
-  <script type="application/json">
-    {
-      "image": "https://example.com/liberty.png",
-
-      "layout": {
-        "size": 0.58,
-        "x": 0.5,
-        "y": 0.37,
-        "maxWidth": 0.8
-      },
-
-      "aurora": {
-        "bg": "conic",
-        "bgPal": "crystal",
-        "bgInt": 55,
-        "bgDrift": 0.6,
-        "bgSweep": 18,
-        "bgSpread": 210,
-        "bgFeather": 34,
-        "bgRadius": 85,
-        "blobs": 7,
-        "blobSize": 75,
-        "grain": 22,
-        "letterGlow": 50,
-        "bloom": 45
-      },
-
-      "sparkle": {
-        "glints": 52,
-        "glintSize": 95,
-        "glintStr": 85,
-        "glintRate": 0.45,
-        "warmth": 72,
-        "dust": 90,
-        "dustStr": 55,
-        "flares": 6,
-        "flareStr": 42,
-        "ghosts": 3,
-        "ghostStr": 22
-      },
-
-      "statue": {
-        "palette": "prism",
-        "light": 1,
-        "tint": 0.08,
-        "clarity": 0.4,
-        "speed": 0.22,
-        "flow": 1.15,
-        "flowScale": 1.5,
-        "scale": 2.1,
-        "sharp": 2.6,
-        "disp": 0.45,
-        "edge": 0.75,
-        "glitter": 0.45,
-        "gsize": 20,
-        "twinkle": 0.7,
-        "grain": 0.015,
-        "quality": 2
-      }
-    }
-  </script>
-</div>
-```
-
-You only need to specify settings you want to override. Everything else falls back to Prism Liberty's defaults.
-
----
-
-## Palettes
-
-Prism Liberty includes several built-in shader palettes:
-
-```text
-prism
-diamond
-crystal
-shard
-champagne
-thermal
-```
-
-Example:
-
-```json
+<script type="application/json" data-prism-config>
 {
-  "statue": {
-    "palette": "diamond"
-  }
+  "aurora": { "default": { "bgInt": 45 }, "hero": { "bgInt": 60, "anchor": "#liberty" } },
+  "image":  { "default": {}, "liberty": { "sparkle": { "dust": 90 } } }
 }
+</script>
 ```
 
----
+This block holds every value, so client changes happen here and the library never needs editing. It must be valid JSON: write `0.6`, not `.6`, and use no trailing commas.
 
-## Multiple Instances
-
-Multiple Prism Liberty effects can exist on the same page.
+**2. Library: Site settings › Custom code › Footer code.**
 
 ```html
-<div data-prism-liberty>
-  <script type="application/json">
-    {
-      "image": "image-one.png",
-      "statue": {
-        "palette": "prism"
-      }
-    }
-  </script>
-</div>
-
-<div data-prism-liberty>
-  <script type="application/json">
-    {
-      "image": "image-two.png",
-      "statue": {
-        "palette": "diamond"
-      }
-    }
-  </script>
-</div>
+<script src="https://cdn.jsdelivr.net/gh/YOUR-USER/YOUR-REPO@v2.0.0/dist/prism.min.js" defer></script>
 ```
 
-Each instance maintains its own configuration.
+**3. Attributes, in the Designer under Element settings › Custom attributes.**
 
----
+| Put it on | Name | Value | What it does |
+|---|---|---|---|
+| any section or div | `data-prism-aurora` | preset name, or empty for `default` | that section gets its own aurora behind its content |
+| a transparent image | `data-prism` | preset name | Statue and Sparkle |
+| a transparent image | `data-prism-statue` | preset name | Statue only |
+| a transparent image | `data-prism-sparkle` | preset name | Sparkle only |
+| any of the above | `data-prism-options` | JSON, e.g. `{"sparkle":{"dust":20}}` | one-off override for this element |
+| any of the above | `data-prism-manual` | (none) | skip automatic start-up; start it yourself with `Prism.mount()` |
 
-## Manual Initialization
+**4. Publish and check the live domain.** Custom code doesn't run in the Designer canvas.
 
-Automatic initialization can be disabled with:
+## Settings reference
 
-```html
-<div data-prism-liberty data-manual></div>
-```
+Anything you leave out uses the default below. Presets merge on top of `default`, and `data-prism-options` merges on top of the preset.
 
-You can then mount the effect manually:
+### `aurora.<preset>`
+
+| Key | Default | Meaning |
+|---|---|---|
+| `bg` | `"conic"` | form: `conic`, `radial`, `splotch` or `none` |
+| `bgPal` | `"crystal"` | colour: `crystal`, `gold`, `vishanti`, `mock` (Iris) or `spectrum` |
+| `bgInt` | `55` | intensity, 0–90 (capped at 90 for flash safety) |
+| `bgDrift` | `0.6` | spin in degrees per second; negative turns the other way |
+| `bgSweep` | `18` | degrees it turns while fading in |
+| `bgSpread` / `bgFeather` | `210` / `34` | width of the fan and softness of its edges, in degrees |
+| `bgRadius` | `85` | radial form: size in % |
+| `blobs` / `blobSize` | `7` / `75` | splotch form: number and size |
+| `bgCentre` / `bgEdge` | `55` / `15` | darkening of the middle, and fade toward the edges |
+| `bgHue` / `bgSat` / `bgLight` | `0` / `100` / `100` | colour adjustments |
+| `grain` | `22` | film grain, 0–80 |
+| `x` / `y` | `50` / `40` | centre of the light, as % of the section |
+| `anchor` / `anchorY` | `""` / `0.36` | CSS selector to centre the light on an element instead; `anchorY` is how far down that element (0 top, 1 bottom) |
+| `fadeIn` | `1600` | fade-in in ms |
+| `resolution` | `0.6` | render scale; the aurora is soft, so it's drawn small and scaled up to save battery |
+| `zIndex` | `-1` | layer order inside the section; `-1` keeps it behind the section's content |
+
+### `image.<preset>`
+
+| Key | Default | Meaning |
+|---|---|---|
+| `effects` | `["statue","sparkle"]` | which effects `data-prism` turns on |
+| `pad` | `0.3` | how far sparkle may reach past the image, × image height |
+| `statue.mode` | `"replace"` | `replace` draws the whole picture on the GPU; `overlay` keeps the real image and only adds light |
+| `statue.palette` | `"prism"` | `prism`, `diamond`, `crystal`, `champagne`, `shard` or `thermal` |
+| `statue.light` / `tint` / `clarity` | `1` / `0.08` / `0.4` | light strength, palette tint, sharpening |
+| `statue.speed` / `flow` / `flowScale` | `0.22` / `1.15` / `1.5` | sweep speed, how much the light bends, swirl size |
+| `statue.scale` / `sharp` / `disp` / `edge` | `2.1` / `2.6` / `0.45` / `0.75` | band count, band focus, dispersion, edge refraction |
+| `statue.glitter` / `gsize` / `twinkle` | `0.45` / `20` / `0.7` | GPU glitter amount, size and rate |
+| `statue.quality` | `2` | pixel-density cap: 1 saves battery, 2 is sharp |
+| `sparkle.glints` / `glintSize` / `glintStr` | `52` / `95` / `85` | glints on the outline: count, size, strength |
+| `sparkle.dust` / `dustStr` / `dustSpread` | `90` / `55` / `1.15` | dust: count, strength, how far it floats |
+| `sparkle.glintRate` | `0.45` | twinkle per second (capped at 1) |
+| `sparkle.warmth` | `72` | % of sparkles that are gold rather than icy |
+| `sparkle.halo` / `bloom` | `50` / `45` | glow around the outline, and glow at the light source |
+| `sparkle.flares` / `flareStr` | `6` / `42` | lens flares |
+| `sparkle.ghosts` / `ghostStr` | `3` / `22` | lens reflections |
+| `sparkle.origin` | `{"x":0.5,"y":0.36}` | where the light comes from on the image |
+
+## How it behaves
+
+- **The image is never moved or rewrapped.** Effects draw on a layer next to it that follows its position, size and opacity every frame. Webflow layout and Interactions that move or fade the image keep working. Rotation isn't followed.
+- **Only what's on screen runs.** An image's GPU context starts when the image comes near the viewport and is released when it leaves, so 4–10 images per page stay well under browser limits. Auroras pause off screen.
+- **Lady Liberty never disappears.** If the GPU or the image read fails, the original image stays, with no effect.
+- **Reduce Motion:** if a visitor has it on, everything settles to a still frame.
+
+## Troubleshooting
+
+Open the browser console on the published site. Every message from this library starts with `Prism:`.
+
+| Message or symptom | Fix |
+|---|---|
+| `could not read the image (the host must allow CORS)` | The GPU can only read images from hosts that allow it. Host the cutout somewhere that sends `Access-Control-Allow-Origin: *`, or point `data-prism-src` on the `<img>` at a copy that does. |
+| `a settings block is not valid JSON` | Fix the JSON in the head block. Common causes are `.6` instead of `0.6`, trailing commas, or curly quotes pasted from a doc. |
+| `no "image" preset called "…"` | The attribute value doesn't match a preset name in the settings. Names are case-sensitive. |
+| Nothing happens, no messages | The script isn't loading. Check the jsDelivr URL opens in a browser tab, and that it's in Footer code with `defer`. |
+| Old behaviour after a push | You're on a cached `@main`. Tag a new version and update the URL, or purge it. |
+| Sparkle is cut off at the edges | A parent element has `overflow: hidden`. Loosen it, or lower `pad`. |
+| Content added later (CMS, tabs) has no effect | Call `Prism.refresh()` after it appears. |
+
+## Script access
 
 ```js
-const element = document.querySelector("[data-prism-liberty]");
-
-const prism = PrismLiberty.mount(element, {
-  image: "https://example.com/image.png",
-});
+Prism.refresh();                                          // start effects on newly added elements
+Prism.get(el, 'aurora').set('bgDrift', 1.2);              // change a live value
+Prism.get(img, 'sparkle').set('dust', 200);
+Prism.mount('statue', img, { statue: { light: 1.2 } });   // start by hand (use with data-prism-manual)
 ```
 
----
+## Coming from v1 (prism-liberty)
 
-## Runtime Controls
-
-A mounted Prism Liberty instance exposes runtime controls.
-
-```js
-const element = document.querySelector("[data-prism-liberty]");
-const prism = element.__prism;
-```
-
-Update an individual setting:
-
-```js
-prism.set("statue", "glitter", 0.8);
-```
-
-Another example:
-
-```js
-prism.set("statue", "speed", 0.4);
-```
-
-Retrieve the current configuration:
-
-```js
-const config = prism.config();
-
-console.log(config);
-```
-
----
-
-## Global API
-
-Prism Liberty exposes:
-
-```js
-window.PrismLiberty;
-```
-
-with:
-
-```js
-PrismLiberty.mount;
-PrismLiberty.DEFAULTS;
-PrismLiberty.LOCKED;
-PrismLiberty.version;
-```
-
-Current version:
-
-```text
-1.0
-```
-
-The underlying rendering systems are also exposed as:
-
-```js
-window.createPrism;
-window.createLightEngine;
-```
-
----
-
-## Image Requirements
-
-For best results:
-
-- Use a high-resolution PNG, WebP, or similarly suitable web image.
-- Transparent-background subjects work especially well with the refractive treatment.
-- Serve images from a source that permits cross-origin image access when necessary.
-- Keep source assets optimized for the web.
-
-Prism Liberty loads the effect image with cross-origin support so that it can be used by the WebGL renderer.
-
----
-
-## Accessibility
-
-The original image receives the configured `alt` value while decorative rendering canvases are hidden from accessibility APIs.
-
-Example:
-
-```json
-{
-  "image": "liberty.png",
-  "alt": "Lady Liberty in crystal glass, holding a basketball"
-}
-```
-
-Prism Liberty also respects:
-
-```css
-prefers-reduced-motion: reduce;
-```
-
-for its entrance animation.
-
----
-
-## Recommended Repository Structure
-
-```text
-prism-liberty/
-├── prism-liberty.js
-├── README.md
-└── LICENSE
-```
-
-Or, if the project grows:
-
-```text
-prism-liberty/
-├── src/
-├── dist/
-│   └── prism-liberty.js
-├── README.md
-├── LICENSE
-└── package.json
-```
-
-When using the second structure, the CDN URL becomes:
-
-```html
-<script src="https://cdn.jsdelivr.net/gh/YOUR-USERNAME/prism-liberty@v1.0.0/dist/prism-liberty.js"></script>
-```
-
----
-
-## Releases
-
-Use Git tags to create stable production versions.
-
-```bash
-git tag v1.0.0
-git push origin v1.0.0
-```
-
-Then reference that version through jsDelivr:
-
-```html
-<script src="https://cdn.jsdelivr.net/gh/YOUR-USERNAME/prism-liberty@v1.0.0/prism-liberty.js"></script>
-```
-
-Future versions can be released without affecting existing implementations:
-
-```text
-v1.0.0
-v1.0.1
-v1.1.0
-v2.0.0
-```
-
-Avoid using `@main` on production websites so updates to the repository do not unexpectedly change live experiences.
-
----
-
-## License
-
-Add the appropriate license for the project before public distribution.
+`[data-prism-liberty]`, `PrismLibertyConfig` and `PrismLiberty.scene` have been replaced by the attributes above. Your Lab values carry over under the same key names, except `letterGlow`, which is now `sparkle.halo`. Aurora keys go under `aurora.<preset>`, and the glint, dust, flare and ghost keys go under `image.<preset>.sparkle`.

@@ -1,0 +1,220 @@
+/* ════════════════════════════════════════════════════════════════════
+   Prism · Statue
+   Refracted light flowing over a transparent cutout, on the GPU.
+   Mark an image:  data-prism="liberty"          (statue + sparkle, from the "liberty" preset)
+                   data-prism-statue="liberty"   (statue light only)
+   Modes: "replace" (default) draws the whole picture on the GPU, with tint and
+          clarity, and hides the original once the first frame is ready.
+          "overlay" keeps the real image showing and only adds light on top.
+   Either way the effect follows the image's position, size and opacity, so
+   Webflow Interactions that move or fade the image still work.
+   ════════════════════════════════════════════════════════════════════ */
+(function () {
+  var P = window.Prism;
+  if (!P || !P.core) { console.warn('Prism: load prism-core before prism-statue'); return; }
+  var U = P.util;
+
+var createShader=(function(){
+  var VS="attribute vec2 a;void main(){gl_Position=vec4(a,0.,1.);}";
+  var FS=[
+  "precision highp float;",
+  "uniform vec2 uRes;uniform vec4 uFit;uniform vec2 uTexel;uniform sampler2D uImg;uniform sampler2D uRamp;",
+  "uniform float uTime,uDpr,uLight,uTint,uClarity,uSpeed,uFlow,uFlowScale,uAngle,uScale,uSharp,uFollow,uDisp,uHue,uThresh,uSoft,uEdge,uGlitter,uGSize,uTwinkle,uGrain,uOverlay;",
+  "vec3 m289(vec3 x){return x-floor(x*(1./289.))*289.;}vec2 m289(vec2 x){return x-floor(x*(1./289.))*289.;}vec3 perm(vec3 x){return m289(((x*34.)+1.)*x);}",
+  "float sn(vec2 v){const vec4 C=vec4(.211324865405187,.366025403784439,-.577350269189626,.024390243902439);vec2 i=floor(v+dot(v,C.yy));vec2 x0=v-i+dot(i,C.xx);vec2 i1=(x0.x>x0.y)?vec2(1.,0.):vec2(0.,1.);vec4 x12=x0.xyxy+C.xxzz;x12.xy-=i1;i=m289(i);vec3 p=perm(perm(i.y+vec3(0.,i1.y,1.))+i.x+vec3(0.,i1.x,1.));vec3 m=max(.5-vec3(dot(x0,x0),dot(x12.xy,x12.xy),dot(x12.zw,x12.zw)),0.);m=m*m;m=m*m;vec3 x=2.*fract(p*C.www)-1.;vec3 h=abs(x)-.5;vec3 ox=floor(x+.5);vec3 a0=x-ox;m*=1.79284291400159-.85373472095314*(a0*a0+h*h);vec3 g;g.x=a0.x*x0.x+h.x*x0.y;g.yz=a0.yz*x12.xz+h.yz*x12.yw;return 130.*dot(m,g);}",
+  "float fbm(vec2 p){float s=0.,a=.5;for(int i=0;i<3;i++){s+=a*sn(p);p=p*2.03+vec2(17.1,9.7);a*=.5;}return s;}",
+  "float h21(vec2 p){p=fract(p*vec2(123.34,456.21));p+=dot(p,p+45.32);return fract(p.x*p.y);}",
+  "float L(vec3 c){return dot(c,vec3(.2126,.7152,.0722));}",
+  "vec3 img(vec2 u){return texture2D(uImg,u).rgb;}","float alp(vec2 u){return texture2D(uImg,u).a;}",
+  "vec3 ramp(float x){return texture2D(uRamp,vec2(fract(x),.5)).rgb;}",
+  "float band(float x){return pow(.5+.5*cos(6.2831853*x),uSharp);}",
+  "void main(){",
+  " vec2 pix=vec2(gl_FragCoord.x,uRes.y-gl_FragCoord.y);",
+  " vec2 uv=(pix-uFit.xy)/uFit.zw;",
+  " float inside=step(0.,uv.x)*step(uv.x,1.)*step(0.,uv.y)*step(uv.y,1.);",
+  " uv=clamp(uv,0.,1.);",
+  " float A=alp(uv)*inside;",
+  " vec3 base=img(uv)*inside;",
+  " vec2 o=uTexel*1.25;",
+  " vec3 n1=img(uv+vec2(o.x,0.)),n2=img(uv-vec2(o.x,0.)),n3=img(uv+vec2(0.,o.y)),n4=img(uv-vec2(0.,o.y));",
+  " vec3 blur=(n1+n2+n3+n4)*.25;",
+  " base=max(base+(base-blur)*uClarity*1.6*inside,0.)*inside;",
+  " float lum=L(base);",
+  " float gx=L(n1)-L(n2),gy=L(n3)-L(n4);",
+  " float edge=clamp(length(vec2(gx,gy))*3.5,0.,1.);",
+  " float t=uTime;",
+  " vec2 p=(pix-uFit.xy)/uFit.w;",
+  " vec2 dir=vec2(cos(uAngle),sin(uAngle));",
+  " vec2 q=p*uFlowScale;",
+  " vec2 w=vec2(fbm(q+vec2(0.,t*.13)),fbm(q+vec2(5.2,1.3)-vec2(t*.11,0.)));",
+  " float warp=fbm(q+1.7*w+vec2(t*.08,-t*.06));",
+  " float ph=dot(p,dir)*uScale+warp*uFlow+lum*uFollow-t*uSpeed;",
+  " float d=uDisp*.06;",
+  " float hue=ph*.31+warp*.35+t*.015+uHue;",
+  " vec3 lt=vec3(ramp(hue-d*2.).r*band(ph-d),ramp(hue).g*band(ph),ramp(hue+d*2.).b*band(ph+d));",
+  " float hl=smoothstep(uThresh,uThresh+uSoft,lum);",
+  " float m=clamp(hl+edge*uEdge,0.,1.)*inside*A;",
+  " vec3 light=lt*m*uLight;",
+  " vec3 tinted=ramp(lum*.6+warp*.15+uHue)*lum*1.35;",
+  " vec3 col=mix(base,max(base,tinted*A),uTint*inside);",
+  " col=1.-(1.-col)*(1.-clamp(light,0.,1.));",
+  " col+=light*light*.35;",
+  " vec3 gl=vec3(0.);",
+  " if(uGlitter>0.001){",
+  "  float cs=uGSize*uDpr;",
+  "  vec2 g=floor(pix/cs);",
+  "  for(int j=-1;j<=1;j++)for(int i=-1;i<=1;i++){",
+  "   vec2 c=g+vec2(float(i),float(j));",
+  "   float h=h21(c);",
+  "   if(h>uGlitter*.4)continue;",
+  "   vec2 ctr=(c+vec2(h21(c+3.1),h21(c+7.7)))*cs;",
+  "   vec2 cu=(ctr-uFit.xy)/uFit.zw;",
+  "   float gate=step(0.,cu.x)*step(cu.x,1.)*step(0.,cu.y)*step(cu.y,1.);",
+  "   gate*=smoothstep(uThresh+.05,uThresh+.35,L(img(clamp(cu,0.,1.))));",
+  "   float tw=.5+.5*sin(t*6.2831853*uTwinkle*(.55+.45*h21(c+1.3))+h21(c+9.1)*6.2831853);",
+  "   tw=tw*tw*tw*tw*tw*tw;",
+  "   vec2 dd=pix-ctr;float r=cs*(.45+.6*h21(c+4.4));",
+  "   float st=exp(-abs(dd.x)/(r*.045))*exp(-abs(dd.y)/r)+exp(-abs(dd.y)/(r*.045))*exp(-abs(dd.x)/r);",
+  "   float core=exp(-dot(dd,dd)/(r*r*.012));",
+  "   vec3 tc=mix(vec3(1.,.97,.92),ramp(h21(c+2.)),.5);",
+  "   gl+=tc*(st*.55+core)*tw*gate;",
+  "  }",
+  " }",
+  " col+=gl*1.1;",
+  " if(uOverlay>.5){",
+  "  vec3 add=clamp(light+light*light*.35+gl*1.1+max(tinted*A-base,0.)*uTint*.6,0.,1.);",
+  "  gl_FragColor=vec4(add,max(add.r,max(add.g,add.b)));return;",
+  " }",
+  " col+=(h21(pix+fract(t*7.)*91.)-.5)*uGrain*A;",
+  " col=clamp(col/(1.+max(col-1.,0.)*.6),0.,1.);",
+  " float oa=max(A,max(col.r,max(col.g,col.b)));",
+  " gl_FragColor=vec4(col,oa);",
+  "}"].join("\n");
+  
+  var PALETTES={
+   prism:{name:"Prism",stops:["#FEFBF6","#FFD175","#F5A461","#FFD175","#FFF4E4","#B86DFD","#7363F8","#487EF7","#50E4FF","#F2FBFF"]},
+   diamond:{name:"Diamond fire",stops:["#FFF7EC","#FFD27A","#FF9A4A","#FF6FAE","#9B6BFF","#4D7BFF","#6FE6FF","#EAF8FF"]},
+   crystal:{name:"Crystal",stops:["#FFFFFF","#FFE7BF","#E9A84A","#FFD27A","#9AA6FF","#5A68E8","#DCE2FF"]},
+   shard:{name:"Shard",stops:["#FFF1D8","#EAB84F","#C97632","#4A35B8","#1C4297","#6E8BFF","#FFF6EA"]},
+   champagne:{name:"Champagne",stops:["#FFFFFF","#FFF0D2","#F2C98A","#F7B7A3","#D9C4FF","#FFFFFF"]},
+   thermal:{name:"Thermal",stops:["#00166D","#00AAFF","#FFCB5C","#FF4400","#F384FF","#FFFFFF"]}
+  };
+  var DEFAULTS={palette:"prism",light:1.0,tint:.1,clarity:.45,speed:.22,flow:1.15,flowScale:1.5,angle:-35,scale:2.1,sharp:2.6,follow:.55,disp:.45,hue:0,thresh:.32,soft:.38,edge:.75,glitter:.45,gsize:20,twinkle:.7,grain:.02,quality:2};
+  
+  function hex(h){return[parseInt(h.substr(1,2),16)/255,parseInt(h.substr(3,2),16)/255,parseInt(h.substr(5,2),16)/255];}
+  function lin(c){return c<=.04045?c/12.92:Math.pow((c+.055)/1.055,2.4);}
+  function gam(c){c=Math.max(0,Math.min(1,c));return c<=.0031308?12.92*c:1.055*Math.pow(c,1/2.4)-.055;}
+  function toLab(rgb){var r=lin(rgb[0]),g=lin(rgb[1]),b=lin(rgb[2]);
+   var l=Math.cbrt(.4122214708*r+.5363325363*g+.0514459929*b),m=Math.cbrt(.2119034982*r+.6806995451*g+.1073969566*b),s=Math.cbrt(.0883024619*r+.2817188376*g+.6299787005*b);
+   return[.2104542553*l+.793617785*m-.0040720468*s,1.9779984951*l-2.428592205*m+.4505937099*s,.0259040371*l+.7827717662*m-.808675766*s];}
+  function fromLab(c){var l=c[0]+.3963377774*c[1]+.2158037573*c[2],m=c[0]-.1055613458*c[1]-.0638541728*c[2],s=c[0]-.0894841775*c[1]-1.291485548*c[2];l*=l*l;m*=m*m;s*=s*s;
+   return[gam(4.0767416621*l-3.3077115913*m+.2309699292*s),gam(-1.2684380046*l+2.6097574011*m-.3413193965*s),gam(-.0041960863*l-.7034186147*m+1.707614701*s)];}
+  function rampData(stops){var labs=stops.map(function(h){return toLab(hex(h));}),n=labs.length,out=new Uint8Array(256*4);
+   for(var i=0;i<256;i++){var x=i/256*n,k=Math.floor(x),f=x-k,a=labs[k%n],b=labs[(k+1)%n];f=f*f*(3-2*f);
+    var c=fromLab([a[0]+(b[0]-a[0])*f,a[1]+(b[1]-a[1])*f,a[2]+(b[2]-a[2])*f]);out[i*4]=c[0]*255;out[i*4+1]=c[1]*255;out[i*4+2]=c[2]*255;out[i*4+3]=255;}
+   return out;}
+  
+  function create(canvas,image,settings,opts){
+   opts=opts||{};
+   var S={};for(var k in DEFAULTS)S[k]=DEFAULTS[k];for(k in settings)S[k]=settings[k];
+   var gl=canvas.getContext("webgl",{antialias:false,premultipliedAlpha:true,alpha:true,preserveDrawingBuffer:false,powerPreference:"high-performance"});
+   if(!gl){if(opts.onError)opts.onError();return null;}
+   canvas.addEventListener("webglcontextlost",function(e){e.preventDefault();if(opts.onLost)opts.onLost();});
+   function sh(t,s){var o=gl.createShader(t);gl.shaderSource(o,s);gl.compileShader(o);if(!gl.getShaderParameter(o,gl.COMPILE_STATUS))throw new Error(gl.getShaderInfoLog(o));return o;}
+   var pr=gl.createProgram();gl.attachShader(pr,sh(gl.VERTEX_SHADER,VS));gl.attachShader(pr,sh(gl.FRAGMENT_SHADER,FS));gl.linkProgram(pr);gl.useProgram(pr);
+   var buf=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,buf);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,3,-1,-1,3]),gl.STATIC_DRAW);
+   var al=gl.getAttribLocation(pr,"a");gl.enableVertexAttribArray(al);gl.vertexAttribPointer(al,2,gl.FLOAT,false,0,0);
+   var U={};["uRes","uFit","uTexel","uImg","uRamp","uTime","uDpr","uLight","uTint","uClarity","uSpeed","uFlow","uFlowScale","uAngle","uScale","uSharp","uFollow","uDisp","uHue","uThresh","uSoft","uEdge","uGlitter","uGSize","uTwinkle","uGrain","uOverlay"].forEach(function(n){U[n]=gl.getUniformLocation(pr,n);});
+   function tex(){var t=gl.createTexture();gl.bindTexture(gl.TEXTURE_2D,t);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);return t;}
+   var tImg=tex();gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);
+   var tRamp=tex();gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.REPEAT);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);
+   var iw=1,ih=1;
+   function setImage(im){iw=im.naturalWidth||im.width;ih=im.naturalHeight||im.height;gl.activeTexture(gl.TEXTURE0);gl.bindTexture(gl.TEXTURE_2D,tImg);gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL,true);gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,im);gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL,false);}
+   function setPalette(){var p=PALETTES[S.palette]||PALETTES.prism;gl.activeTexture(gl.TEXTURE1);gl.bindTexture(gl.TEXTURE_2D,tRamp);gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,256,1,0,gl.RGBA,gl.UNSIGNED_BYTE,rampData(p.stops));}
+   setImage(image);setPalette();gl.uniform1i(U.uImg,0);gl.uniform1i(U.uRamp,1);
+   var reduce=window.matchMedia&&matchMedia("(prefers-reduced-motion: reduce)").matches;
+   var W=0,H=0,dpr=1;
+   function resize(){dpr=Math.min(window.devicePixelRatio||1,S.quality);var r=canvas.getBoundingClientRect();W=Math.max(1,Math.round(r.width*dpr));H=Math.max(1,Math.round(r.height*dpr));if(canvas.width!==W||canvas.height!==H){canvas.width=W;canvas.height=H;}gl.viewport(0,0,W,H);}
+   var ro=window.ResizeObserver?new ResizeObserver(resize):null;if(ro)ro.observe(canvas);else window.addEventListener("resize",resize);resize();
+   var visible=true;
+   if(opts.observe&&window.IntersectionObserver){new IntersectionObserver(function(e){visible=e[0].isIntersecting;},{rootMargin:"100px"}).observe(canvas);}
+   var paused=false,clock=0,last=performance.now(),raf=0,frames=0,fpsT=last;
+   function clamp(v,a,b){return Math.max(a,Math.min(b,v));}
+   function frame(now){raf=requestAnimationFrame(frame);var dt=Math.min(.05,(now-last)/1000);last=now;if(!visible)return;
+    if(!paused)clock+=dt*(reduce?0.25:1);
+    var fx0,fy0,fw,fh;if(opts.fit){var F=opts.fit();if(!F)return;fx0=F[0]*dpr;fy0=F[1]*dpr;fw=F[2]*dpr;fh=F[3]*dpr;}else{var pad=opts.pad||0,sc=Math.min((W-pad*2*dpr)/iw,(H-pad*2*dpr)/ih);fw=iw*sc;fh=ih*sc;fx0=(W-fw)/2;fy0=(H-fh)/2;}
+    gl.uniform2f(U.uRes,W,H);gl.uniform4f(U.uFit,fx0,fy0,fw,fh);gl.uniform2f(U.uTexel,1/iw,1/ih);
+    gl.uniform1f(U.uTime,clock);gl.uniform1f(U.uDpr,dpr);
+    gl.uniform1f(U.uLight,S.light);gl.uniform1f(U.uTint,S.tint);gl.uniform1f(U.uClarity,S.clarity);
+    gl.uniform1f(U.uSpeed,clamp(S.speed,0,1));gl.uniform1f(U.uFlow,S.flow);gl.uniform1f(U.uFlowScale,S.flowScale);
+    gl.uniform1f(U.uAngle,S.angle*Math.PI/180);gl.uniform1f(U.uScale,S.scale);gl.uniform1f(U.uSharp,S.sharp);gl.uniform1f(U.uFollow,S.follow);
+    gl.uniform1f(U.uDisp,S.disp);gl.uniform1f(U.uHue,S.hue);gl.uniform1f(U.uThresh,S.thresh);gl.uniform1f(U.uSoft,Math.max(.01,S.soft));gl.uniform1f(U.uEdge,S.edge);
+    gl.uniform1f(U.uGlitter,S.glitter);gl.uniform1f(U.uGSize,S.gsize);gl.uniform1f(U.uTwinkle,reduce?0:clamp(S.twinkle,0,1.5));gl.uniform1f(U.uGrain,S.grain);gl.uniform1f(U.uOverlay,opts.overlay?1:0);
+    gl.drawArrays(gl.TRIANGLES,0,3);if(opts.onFirstFrame&&!opts.__done){opts.__done=1;opts.onFirstFrame();}
+    frames++;if(opts.onFps&&now-fpsT>1000){opts.onFps(Math.round(frames*1000/(now-fpsT)));frames=0;fpsT=now;}
+   }
+   raf=requestAnimationFrame(frame);
+   return{
+    destroy:function(){cancelAnimationFrame(raf);if(ro)ro.disconnect();var x=gl.getExtension("WEBGL_lose_context");if(x)x.loseContext();},
+    settings:S,
+    set:function(k,v){S[k]=v;if(k==="palette")setPalette();if(k==="quality")resize();},
+    setAll:function(o){for(var k in o)S[k]=o[k];setPalette();resize();},
+    setImage:setImage,canvas:canvas,
+    pause:function(p){paused=p;},
+    isPaused:function(){return paused;}
+   };
+  }
+  create.PALETTES=PALETTES;create.DEFAULTS=DEFAULTS;
+  return create;
+  })();
+  
+  P.STATUE_DEFAULTS = { mode: 'replace', palette: 'prism', light: 1, tint: .08, clarity: .4, speed: .22, flow: 1.15, flowScale: 1.5, scale: 2.1, sharp: 2.6,
+    follow: .55, disp: .45, hue: 0, thresh: .32, soft: .38, edge: .75, glitter: .45, gsize: 20, twinkle: .7, grain: 0, quality: 2 };
+  P.IMAGE_DEFAULTS = P.IMAGE_DEFAULTS || {};
+  P.IMAGE_DEFAULTS.effects = P.IMAGE_DEFAULTS.effects || ['statue', 'sparkle'];
+  P.IMAGE_DEFAULTS.pad = P.IMAGE_DEFAULTS.pad != null ? P.IMAGE_DEFAULTS.pad : .3;
+  P.IMAGE_DEFAULTS.statue = P.STATUE_DEFAULTS;
+  P.shader = createShader;
+  P.STATUE_PALETTES = Object.keys(createShader.PALETTES);
+  var live = 0, MAX_LIVE = 8;   // browsers allow only a few GPU contexts; images off screen give theirs back
+
+  function mount(img, settings) {
+    var preset = img.getAttribute('data-prism-statue') || img.getAttribute('data-prism');
+    var cfg = settings || P.resolve('image', preset, img, P.IMAGE_DEFAULTS);
+    if (!settings && !img.hasAttribute('data-prism-statue') && (cfg.effects || []).indexOf('statue') < 0) return null;
+    var S = U.merge(U.clone(P.STATUE_DEFAULTS), cfg.statue || {});
+    var ov = P.overlay(img, cfg);
+    var canvas = document.createElement('canvas'), fx = null, tex = null, alive = true;
+    var overlay = S.mode !== 'replace';
+    canvas.className = 'prism-statue';
+    canvas.style.cssText = 'position:absolute;inset:0;z-index:1;width:100%;height:100%;display:block;opacity:0;transition:opacity .9s ease' + (overlay ? ';mix-blend-mode:screen' : '');
+    var showImg = function () { if (!overlay) img.style.visibility = ''; };
+    function start() {
+      if (fx || !alive) return;
+      if (live >= MAX_LIVE) return;
+      ov.load().then(function (t) {
+        tex = t; if (fx || !ov.visible || !alive) return;
+        try {
+          fx = createShader(canvas, tex, S, {
+            overlay: overlay,
+            fit: function () { return [ov.pad, ov.pad, ov.w, ov.h]; },
+            onFirstFrame: function () { canvas.style.opacity = 1; if (!overlay) img.style.visibility = 'hidden'; },
+            onLost: function () { canvas.style.opacity = 0; showImg(); fx = null; live--; },
+            onError: function () { showImg(); },
+          });
+          if (fx) live++;
+        } catch (e) { U.warn('statue effect unavailable', e); showImg(); }
+      }, function () { showImg(); });
+    }
+    function stop() { if (!fx) return; fx.destroy(); fx = null; live--; canvas.style.opacity = 0; showImg(); }
+    ov.add({ el: canvas, show: start, hide: stop });
+    return {
+      settings: S, overlay: ov,
+      set: function (k, v) { S[k] = v; if (fx) fx.set(k, v); },
+      destroy: function () { alive = false; stop(); canvas.remove(); },
+    };
+  }
+
+  P.statue = { mount: mount, defaults: P.STATUE_DEFAULTS };
+  P.register('statue', { selector: 'img[data-prism], img[data-prism-statue]', mount: function (el) { return mount(el); } });
+})();
