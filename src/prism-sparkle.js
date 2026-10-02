@@ -81,8 +81,8 @@
   }
 
   function mount(img, settings) {
-    var preset = img.getAttribute('data-prism-sparkle') || img.getAttribute('data-prism');
-    var cfg = settings || P.resolve('image', preset, img, P.IMAGE_DEFAULTS);
+    var preset = function () { return img.getAttribute('data-prism-sparkle') || img.getAttribute('data-prism'); };
+    var manual = !!settings, cfg = settings || P.resolve('image', preset(), img, P.IMAGE_DEFAULTS);
     if (!settings && !img.hasAttribute('data-prism-sparkle') && (cfg.effects || []).indexOf('sparkle') < 0) return null;
     var S = U.merge(U.clone(P.SPARKLE_DEFAULTS), cfg.sparkle || {});
     sprites();
@@ -132,6 +132,12 @@
     }
     function resize() {
       front.width = Math.round(ov.W * dpr); front.height = Math.round(ov.H * dpr);
+      /* feather every edge of the layer, so flares, halo and dust fade out instead of
+         stopping at a hard line where the layer ends */
+      var f = Math.max(8, Math.round(ov.pad * .9)) + 'px';
+      var m = 'linear-gradient(to right,transparent,#000 ' + f + ',#000 calc(100% - ' + f + '),transparent),linear-gradient(to bottom,transparent,#000 ' + f + ',#000 calc(100% - ' + f + '),transparent)';
+      wrap.style.webkitMaskImage = wrap.style.maskImage = m;
+      wrap.style.webkitMaskComposite = 'source-in'; wrap.style.maskComposite = 'intersect';
     }
     function put(im, x, y, size, rot, a) {
       if (a < .004 || size < .5) return;
@@ -179,7 +185,7 @@
         });
       }
       /* glints on the outline */
-      var nG = Math.min(GL.length, Math.round(S.glints)), gs = S.glintStr / 100;
+      var dens = P.perf.scale([1, .7, .45]), nG = Math.min(GL.length, Math.round(S.glints * dens)), gs = S.glintStr / 100;
       for (var i = 0; i < nG && gs > .003; i++) {
         var G = GL[i], ia = U.easeOut(clamp((t - e0 - rr * (.4 + G.ph * .8)) / rr, 0, 1)); if (ia <= 0) continue;
         var tw = Math.pow(.5 - .5 * Math.cos(2 * Math.PI * (t * rate * G.sp + G.ph)), 3), x, y;
@@ -188,7 +194,7 @@
         put(G.warm < S.warmth / 100 ? STAR_W : STAR_C, x, y, S.glintSize * k * (.45 + G.s * .9) * (.55 + .45 * tw) * 2, G.rot, gs * ia * (.15 + .85 * tw));
       }
       /* dust floating in the glow */
-      var nD = Math.min(DU.length, Math.round(S.dust)), ds = S.dustStr / 100;
+      var nD = Math.min(DU.length, Math.round(S.dust * dens)), ds = S.dustStr / 100;
       for (var d = 0; d < nD && ds > .003; d++) {
         var Pd = DU[d], ib = U.easeOut(clamp((t - e0 - rr * (.6 + Pd.ph)) / rr, 0, 1)); if (ib <= 0) continue;
         var tw2 = .5 - .5 * Math.cos(2 * Math.PI * (t * rate * .7 * Pd.sp + Pd.ph));
@@ -196,21 +202,30 @@
         put(Pd.warm < S.warmth / 100 ? STAR_W : STAR_C, ox + Math.cos(Pd.a) * dist, oy + Math.sin(Pd.a) * dist, (5 + Pd.s * 12) * k * (.6 + .4 * tw2), 0, ds * ib * Pd.s * (.25 + .75 * tw2));
       }
     }
-    ov.add({
+    var layer = {
       el: wrap, resize: resize,
-      show: function () { running = true; ov.load().then(function (tex) { if (!EDGES.length && !HALO) edges(tex); }, function () {}); },
+      show: function () { running = true; ov.load().then(function (tex) { if (!EDGES.length && !HALO && !edges.q) { edges.q = 1; U.idle(function () { edges(tex); edges.q = 0; }); } }, function () {}); },
       hide: function () { running = false; fx.setTransform(1, 0, 0, 1, 0, 0); fx.clearRect(0, 0, front.width, front.height); },
       frame: frame,
-    });
+    };
+    ov.add(layer);
     seed(); resize();
-    return {
-      settings: S, overlay: ov,
+    var api = {
+      settings: S, overlay: ov, kind: 'sparkle', defaults: P.SPARKLE_DEFAULTS,
+      reconfigure: function (next) {
+        if (manual && !next) return;
+        next = next || P.resolve('image', preset(), img, P.IMAGE_DEFAULTS);
+        var sp = U.merge(U.clone(P.SPARKLE_DEFAULTS), next.sparkle || {});
+        for (var k in sp) if (JSON.stringify(sp[k]) !== JSON.stringify(S[k])) api.set(k, sp[k]);
+        if (next.pad != null) ov.padScale = next.pad;
+      },
       set: function (k, v) { if (k === 'origin') S.origin = v; else S[k] = v; if (k === 'flares' || k === 'ghosts' || k === 'seed') seed(); if (k === 'seed') { EDGES = []; HALO = null; ov.load().then(edges, function () {}); } },
       replay: function () { t = 0; },
-      destroy: function () { running = false; wrap.remove(); },
+      destroy: function () { ov.remove(layer); running = false; if (img.__prism) img.__prism.sparkle = undefined; },
     };
+    return api;
   }
 
   P.sparkle = { mount: mount, defaults: P.SPARKLE_DEFAULTS };
-  P.register('sparkle', { selector: 'img[data-prism], img[data-prism-sparkle]', mount: function (el) { return mount(el); } });
+  P.register('sparkle', { selector: 'img[data-prism], img[data-prism-sparkle]', mount: function (el, s) { return mount(el, s); } });
 })();

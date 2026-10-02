@@ -138,10 +138,10 @@ var createShader=(function(){
    var ro=window.ResizeObserver?new ResizeObserver(resize):null;if(ro)ro.observe(canvas);else window.addEventListener("resize",resize);resize();
    var visible=true;
    if(opts.observe&&window.IntersectionObserver){new IntersectionObserver(function(e){visible=e[0].isIntersecting;},{rootMargin:"100px"}).observe(canvas);}
-   var paused=false,clock=0,last=performance.now(),raf=0,frames=0,fpsT=last;
+   var still=0,paused=false,clock=0,last=performance.now(),raf=0,frames=0,fpsT=last;
    function clamp(v,a,b){return Math.max(a,Math.min(b,v));}
    function frame(now){raf=requestAnimationFrame(frame);var dt=Math.min(.05,(now-last)/1000);last=now;if(!visible)return;
-    if(!paused)clock+=dt*(reduce?0.25:1);
+    if(paused){if(still)return;still=1;}else{still=0;clock+=dt*(reduce?0.25:1);}
     var fx0,fy0,fw,fh;if(opts.fit){var F=opts.fit();if(!F)return;fx0=F[0]*dpr;fy0=F[1]*dpr;fw=F[2]*dpr;fh=F[3]*dpr;}else{var pad=opts.pad||0,sc=Math.min((W-pad*2*dpr)/iw,(H-pad*2*dpr)/ih);fw=iw*sc;fh=ih*sc;fx0=(W-fw)/2;fy0=(H-fh)/2;}
     gl.uniform2f(U.uRes,W,H);gl.uniform4f(U.uFit,fx0,fy0,fw,fh);gl.uniform2f(U.uTexel,1/iw,1/ih);
     gl.uniform1f(U.uTime,clock);gl.uniform1f(U.uDpr,dpr);
@@ -157,7 +157,7 @@ var createShader=(function(){
    return{
     destroy:function(){cancelAnimationFrame(raf);if(ro)ro.disconnect();var x=gl.getExtension("WEBGL_lose_context");if(x)x.loseContext();},
     settings:S,
-    set:function(k,v){S[k]=v;if(k==="palette")setPalette();if(k==="quality")resize();},
+    set:function(k,v){S[k]=v;still=0;if(k==="palette")setPalette();if(k==="quality")resize();},
     setAll:function(o){for(var k in o)S[k]=o[k];setPalette();resize();},
     setImage:setImage,canvas:canvas,
     pause:function(p){paused=p;},
@@ -176,45 +176,73 @@ var createShader=(function(){
   P.IMAGE_DEFAULTS.statue = P.STATUE_DEFAULTS;
   P.shader = createShader;
   P.STATUE_PALETTES = Object.keys(createShader.PALETTES);
-  var live = 0, MAX_LIVE = 8;   // browsers allow only a few GPU contexts; images off screen give theirs back
+  /* Browsers allow only a few GPU contexts. Images off screen pause (instant to resume);
+     past the budget, the one seen longest ago gives its context back. */
+  var BUDGET = 6, pool = [];
+  function reclaim() {
+    var live = pool.filter(function (r) { return r.fx; });
+    if (live.length < BUDGET) return true;
+    var idle = live.filter(function (r) { return !r.visible; }).sort(function (a, b) { return a.seen - b.seen; })[0];
+    if (idle) { idle.release(); return true; }
+    return false;
+  }
 
   function mount(img, settings) {
-    var preset = img.getAttribute('data-prism-statue') || img.getAttribute('data-prism');
-    var cfg = settings || P.resolve('image', preset, img, P.IMAGE_DEFAULTS);
+    var preset = function () { return img.getAttribute('data-prism-statue') || img.getAttribute('data-prism'); };
+    var manual = !!settings, cfg = settings || P.resolve('image', preset(), img, P.IMAGE_DEFAULTS);
     if (!settings && !img.hasAttribute('data-prism-statue') && (cfg.effects || []).indexOf('statue') < 0) return null;
     var S = U.merge(U.clone(P.STATUE_DEFAULTS), cfg.statue || {});
     var ov = P.overlay(img, cfg);
-    var canvas = document.createElement('canvas'), fx = null, tex = null, alive = true;
+    var canvas = document.createElement('canvas'), alive = true;
     var overlay = S.mode !== 'replace';
     canvas.className = 'prism-statue';
     canvas.style.cssText = 'position:absolute;inset:0;z-index:1;width:100%;height:100%;display:block;opacity:0;transition:opacity .9s ease' + (overlay ? ';mix-blend-mode:screen' : '');
+    var rec = { fx: null, visible: false, seen: 0 };
     var showImg = function () { if (!overlay) img.style.visibility = ''; };
-    function start() {
-      if (fx || !alive) return;
-      if (live >= MAX_LIVE) return;
-      ov.load().then(function (t) {
-        tex = t; if (fx || !ov.visible || !alive) return;
+    var q = function () { return Math.min(S.quality, P.perf.scale([S.quality, 1.5, 1])); };
+    rec.release = function () { if (!rec.fx) return; rec.fx.destroy(); rec.fx = null; canvas.style.opacity = 0; showImg(); };
+    function show() {
+      rec.visible = true; rec.seen = performance.now();
+      if (!alive) return;
+      if (rec.fx) { rec.fx.pause(false); return; }
+      if (!reclaim()) return;
+      ov.load().then(function (tex) {
+        if (rec.fx || !rec.visible || !alive) return;
         try {
-          fx = createShader(canvas, tex, S, {
+          var opts = U.clone(S); opts.quality = q();
+          rec.fx = createShader(canvas, tex, opts, {
             overlay: overlay,
             fit: function () { return [ov.pad, ov.pad, ov.w, ov.h]; },
             onFirstFrame: function () { canvas.style.opacity = 1; if (!overlay) img.style.visibility = 'hidden'; },
-            onLost: function () { canvas.style.opacity = 0; showImg(); fx = null; live--; },
-            onError: function () { showImg(); },
+            onLost: function () { rec.fx = null; canvas.style.opacity = 0; showImg(); },
+            onError: showImg,
           });
-          if (fx) live++;
         } catch (e) { U.warn('statue effect unavailable', e); showImg(); }
-      }, function () { showImg(); });
+      }, showImg);
     }
-    function stop() { if (!fx) return; fx.destroy(); fx = null; live--; canvas.style.opacity = 0; showImg(); }
-    ov.add({ el: canvas, show: start, hide: stop });
-    return {
-      settings: S, overlay: ov,
-      set: function (k, v) { S[k] = v; if (fx) fx.set(k, v); },
-      destroy: function () { alive = false; stop(); canvas.remove(); },
+    function hide() { rec.visible = false; rec.seen = performance.now(); if (rec.fx) rec.fx.pause(true); }
+    pool.push(rec);
+    var layer = { el: canvas, show: show, hide: hide };
+    ov.add(layer);
+    P.perf.on(function () { if (rec.fx) rec.fx.set('quality', q()); });
+    var api = {
+      settings: S, overlay: ov, kind: 'statue', defaults: P.STATUE_DEFAULTS,
+      set: function (k, v) {
+        S[k] = v;
+        if (k === 'mode') { overlay = v !== 'replace'; rec.release(); canvas.style.mixBlendMode = overlay ? 'screen' : ''; if (rec.visible) show(); return; }
+        if (rec.fx) rec.fx.set(k, k === 'quality' ? q() : v);
+      },
+      reconfigure: function (next) {
+        if (manual && !next) return;
+        next = next || P.resolve('image', preset(), img, P.IMAGE_DEFAULTS);
+        var st = U.merge(U.clone(P.STATUE_DEFAULTS), next.statue || {});
+        for (var k in st) if (st[k] !== S[k]) api.set(k, st[k]);
+      },
+      destroy: function () { alive = false; rec.release(); ov.remove(layer); pool.splice(pool.indexOf(rec), 1); if (img.__prism) img.__prism.statue = undefined; },
     };
+    return api;
   }
 
   P.statue = { mount: mount, defaults: P.STATUE_DEFAULTS };
-  P.register('statue', { selector: 'img[data-prism], img[data-prism-statue]', mount: function (el) { return mount(el); } });
+  P.register('statue', { selector: 'img[data-prism], img[data-prism-statue]', mount: function (el, s) { return mount(el, s); } });
 })();

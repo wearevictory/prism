@@ -1,14 +1,16 @@
 /* ════════════════════════════════════════════════════════════════════
    Prism · core
-   Shared by every module: helpers, settings, one animation loop,
-   visibility, the overlay that sits on top of an image, and start-up.
+   Shared by every module: helpers, settings (with breakpoints), one
+   animation loop, adaptive quality, the overlay that sits on top of an
+   image, start-up, and the on-page tuner loader.
    Load this first, then any of: prism-aurora, prism-statue, prism-sparkle.
    ════════════════════════════════════════════════════════════════════ */
 (function () {
   if (window.Prism && window.Prism.core) return;
   var P = window.Prism = window.Prism || {};
   P.core = true;
-  P.version = '2.0.0';
+  P.version = '2.1.1';
+  var SCRIPT = (document.currentScript && document.currentScript.src) || '';
 
   /* ── Helpers ─────────────────────────────────────────────────────── */
   var clamp = function (v, a, b) { return Math.min(b, Math.max(a, v)); };
@@ -32,18 +34,24 @@
     },
     reduced: !!(window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches),
     dpr: function (cap) { return Math.min(cap || 2, window.devicePixelRatio || 1); },
+    idle: function (fn) { return window.requestIdleCallback ? requestIdleCallback(fn, { timeout: 600 }) : setTimeout(fn, 1); },
     warn: function () { var a = ['Prism:']; for (var i = 0; i < arguments.length; i++) a.push(arguments[i]); console.warn.apply(console, a); },
   };
   U.ok = function (L, C, h, a) { return U.rgba(U.oklch(L / 100, C, h), a == null ? 1 : a); };
-  var isObj = function (v) { return v && typeof v === 'object' && !Array.isArray(v); };
+  var isObj = U.isObj = function (v) { return v && typeof v === 'object' && !Array.isArray(v); };
   var merge = U.merge = function (target, src) { if (!isObj(src)) return target; for (var k in src) { if (isObj(src[k])) { if (!isObj(target[k])) target[k] = {}; merge(target[k], src[k]); } else target[k] = src[k]; } return target; };
   var clone = U.clone = function (o) { return JSON.parse(JSON.stringify(o)); };
 
+  /* ── Breakpoints, matching Webflow: tablet ≤ 991px, mobile ≤ 767px ── */
+  var BP = P.breakpoints = { tablet: '(max-width: 991px)', mobile: '(max-width: 767px)' };
+  P.activeBreakpoints = function () { return Object.keys(BP).filter(function (k) { return window.matchMedia && matchMedia(BP[k]).matches; }); };
+
   /* ── Settings ────────────────────────────────────────────────────────
-     All values come from one JSON block (exported by the Lab):
+     One JSON block (exported by the Lab):
        <script type="application/json" data-prism-config>{ "aurora": {…}, "image": {…} }</script>
-     or window.PrismConfig = {…}. Each holds named presets plus "default".
-     Elements pick a preset by name and can override with data-prism-options='{…}'. */
+     or window.PrismConfig. Named presets plus "default". An element picks a
+     preset by name and can override any value with data-prism-options='{…}'.
+     Any layer can hold "tablet": {…} and "mobile": {…} for smaller screens. */
   var CONFIG = null, WARNED = {};
   P.config = function (fresh) {
     if (CONFIG && !fresh) return CONFIG;
@@ -55,29 +63,57 @@
     if (isObj(window.PrismConfig)) merge(CONFIG, window.PrismConfig);
     return CONFIG;
   };
-  P.resolve = function (kind, preset, el, defaults) {
-    var group = P.config()[kind] || {}, out = merge(clone(defaults), group['default'] || {});
+  var strip = function (o) { var c = clone(o || {}); delete c.tablet; delete c.mobile; return c; };
+  P.layers = function (kind, preset, el) {
+    var group = P.config()[kind] || {}, layers = [group['default'] || {}];
     if (preset && preset !== 'default' && preset !== 'true') {
-      if (group[preset]) merge(out, group[preset]);
+      if (group[preset]) layers.push(group[preset]);
       else if (!WARNED[kind + preset]) { WARNED[kind + preset] = 1; U.warn('no "' + kind + '" preset called "' + preset + '"; using the default. Check the name in your settings block.'); }
     }
     var inline = el && el.getAttribute('data-prism-options');
-    if (inline) { try { merge(out, JSON.parse(inline)); } catch (e) { U.warn('data-prism-options is not valid JSON', el, e); } }
+    if (inline) { try { layers.push(JSON.parse(inline)); } catch (e) { U.warn('data-prism-options is not valid JSON', el, e); } }
+    return layers;
+  };
+  P.resolve = function (kind, preset, el, defaults, extra) {
+    var layers = P.layers(kind, preset, el).concat(extra || []), out = clone(defaults), bps = P.activeBreakpoints();
+    layers.forEach(function (l) { merge(out, strip(l)); });
+    bps.forEach(function (bp) { layers.forEach(function (l) { if (isObj(l[bp])) merge(out, l[bp]); }); });
+    delete out.tablet; delete out.mobile;
     return out;
   };
 
-  /* ── One loop for everything; stops when nothing is on screen ───── */
-  var subs = [], raf = 0, last = 0;
+  /* ── One loop for everything: reads first, then writes, so the page never re-lays-out twice ── */
+  var reads = [], writes = [], raf = 0, last = 0;
+  var perf = P.perf = { level: 0, max: 2, fps: 60, listeners: [], adaptive: true, on: function (fn) { this.listeners.push(fn); fn(this.level); } };
+  var ema = 1 / 60, slow = 0, good = 0;
+  function govern(dt) {
+    if (!perf.adaptive || dt <= 0 || dt > .25) return;
+    ema += (dt - ema) * .05; perf.fps = Math.round(1 / ema);
+    if (ema > 1 / 45) { slow += dt; good = 0; } else if (ema < 1 / 57) { good += dt; slow = 0; }
+    if (slow > 1.5 && perf.level < perf.max) { slow = 0; setLevel(perf.level + 1); }
+    if (good > 12 && perf.level > perf.floor) { good = 0; setLevel(perf.level - 1); }
+  }
+  function setLevel(l) { perf.level = clamp(l, perf.floor, perf.max); perf.listeners.forEach(function (fn) { try { fn(perf.level); } catch (e) {} }); }
+  perf.set = setLevel;
+  /* devices that ask us to save data, or have little memory, start a step down */
+  perf.floor = 0;
+  if ((navigator.connection && navigator.connection.saveData) || (navigator.deviceMemory && navigator.deviceMemory < 4)) { perf.level = 1; perf.floor = 1; }
+  perf.scale = function (arr) { return arr[Math.min(arr.length - 1, perf.level)]; };
+
   function tick(now) {
-    var dt = Math.min(.05, Math.max(0, (now - last) / 1000)); last = now;
-    for (var i = 0; i < subs.length; i++) { try { subs[i](dt, now); } catch (e) { U.warn(e); } }
-    raf = subs.length ? requestAnimationFrame(tick) : 0;
+    var dt = Math.min(.05, Math.max(0, (now - last) / 1000)), raw = (now - last) / 1000; last = now;
+    var i;
+    for (i = 0; i < reads.length; i++) { try { reads[i](dt, now); } catch (e) { U.warn(e); } }
+    for (i = 0; i < writes.length; i++) { try { writes[i](dt, now); } catch (e) { U.warn(e); } }
+    govern(raw);
+    raf = (reads.length || writes.length) ? requestAnimationFrame(tick) : 0;
   }
   P.loop = {
-    add: function (fn) {
-      if (subs.indexOf(fn) < 0) subs.push(fn);
+    add: function (fn, phase) {
+      var list = phase === 'read' ? reads : writes;
+      if (list.indexOf(fn) < 0) list.push(fn);
       if (!raf) { last = performance.now(); raf = requestAnimationFrame(tick); }
-      return function () { var i = subs.indexOf(fn); if (i >= 0) subs.splice(i, 1); };
+      return function () { var i = list.indexOf(fn); if (i >= 0) list.splice(i, 1); };
     },
   };
   P.watch = function (el, cb, margin) {
@@ -95,32 +131,37 @@
   P.overlay = function (img, opts) {
     if (img.__prismOverlay) return img.__prismOverlay;
     var parent = img.parentElement;
-    if (parent && parent.tagName === 'PICTURE') { img = parent.querySelector('img') || img; parent = parent.parentElement; }
+    if (parent && parent.tagName === 'PICTURE') parent = parent.parentElement;
     if (!parent) throw new Error('the image needs a parent element');
     if (getComputedStyle(parent).position === 'static') parent.style.position = 'relative';
     var el = document.createElement('div');
     el.className = 'prism-overlay';
     el.setAttribute('aria-hidden', 'true');
-    el.style.cssText = 'position:absolute;left:0;top:0;width:0;height:0;pointer-events:none;z-index:' + (opts.zIndex != null ? opts.zIndex : 1);
+    el.style.cssText = 'position:absolute;left:0;top:0;width:0;height:0;pointer-events:none;contain:strict;z-index:' + (opts.zIndex != null ? opts.zIndex : 1);
     var anchor = img.parentElement === parent ? img : img.parentElement;
     parent.insertBefore(el, anchor.nextSibling);
 
     var ov = { img: img, el: el, x: NaN, y: NaN, w: 1, h: 1, pad: 0, W: 1, H: 1, padScale: opts.pad != null ? opts.pad : .3, visible: false, layers: [], texture: null };
-    var fitMode = getComputedStyle(img).objectFit;
-    ov.measure = function () {
+    var fitMode = getComputedStyle(img).objectFit, next = null;
+    /* read phase: measure only */
+    function read() {
       var r = img.getBoundingClientRect(), pr = parent.getBoundingClientRect();
-      if (!r.width || !r.height) return false;
+      if (!r.width || !r.height) { next = null; return; }
       var w = r.width, h = r.height, x = r.left - pr.left - parent.clientLeft + parent.scrollLeft, y = r.top - pr.top - parent.clientTop + parent.scrollTop;
       var nw = img.naturalWidth, nh = img.naturalHeight;
-      if (nw && nh && (fitMode === 'contain' || fitMode === 'scale-down')) { // the picture inside a letterboxed box
-        var s = Math.min(w / nw, h / nh), cw = nw * s, ch = nh * s; x += (w - cw) / 2; y += (h - ch) / 2; w = cw; h = ch;
-      }
-      var p = Math.round(h * ov.padScale);
-      if (Math.abs(w - ov.w) > .5 || Math.abs(h - ov.h) > .5 || p !== ov.pad) { ov.w = w; ov.h = h; ov.pad = p; ov.W = w + 2 * p; ov.H = h + 2 * p; el.style.width = ov.W + 'px'; el.style.height = ov.H + 'px'; ov.layers.forEach(function (l) { if (l.resize) l.resize(); }); }
-      if (!(Math.abs(x - ov.x) <= .25 && Math.abs(y - ov.y) <= .25) || p !== ov._p) { ov.x = x; ov.y = y; ov._p = p; el.style.transform = 'translate(' + (x - ov.pad) + 'px,' + (y - ov.pad) + 'px)'; }
-      var o = getComputedStyle(img).opacity; if (o !== ov._o) { el.style.opacity = o; ov._o = o; }
-      return true;
-    };
+      if (nw && nh && (fitMode === 'contain' || fitMode === 'scale-down')) { var s = Math.min(w / nw, h / nh), cw = nw * s, ch = nh * s; x += (w - cw) / 2; y += (h - ch) / 2; w = cw; h = ch; }
+      next = { x: x, y: y, w: w, h: h, o: getComputedStyle(img).opacity };
+    }
+    /* write phase: apply, then let the layers draw */
+    function write(dt, now) {
+      if (!next) return;
+      var n = next, p = Math.round(n.h * ov.padScale);
+      if (Math.abs(n.w - ov.w) > .5 || Math.abs(n.h - ov.h) > .5 || p !== ov.pad) { ov.w = n.w; ov.h = n.h; ov.pad = p; ov.W = n.w + 2 * p; ov.H = n.h + 2 * p; el.style.width = ov.W + 'px'; el.style.height = ov.H + 'px'; ov.layers.forEach(function (l) { if (l.resize) l.resize(); }); }
+      if (!(Math.abs(n.x - ov.x) <= .25 && Math.abs(n.y - ov.y) <= .25) || p !== ov._p) { ov.x = n.x; ov.y = n.y; ov._p = p; el.style.transform = 'translate3d(' + (n.x - p) + 'px,' + (n.y - p) + 'px,0)'; }
+      if (n.o !== ov._o) { el.style.opacity = n.o; ov._o = n.o; }
+      for (var i = 0; i < ov.layers.length; i++) if (ov.layers[i].frame) ov.layers[i].frame(dt, now);
+    }
+    ov.measure = function () { read(); write(0, performance.now()); return !!next; };
     /* a CORS-readable copy of the picture: the GPU and the edge finder can only read images the host allows */
     ov.load = function () {
       if (ov.texture) return ov.texture;
@@ -128,28 +169,28 @@
       ov.texture = new Promise(function (res, rej) {
         if (!src) return rej(new Error('image has no src'));
         var t = new Image(); t.crossOrigin = 'anonymous'; t.decoding = 'async';
-        t.onload = function () { res(t); };
+        t.onload = function () { (t.decode ? t.decode() : Promise.resolve()).catch(function () {}).then(function () { res(t); }); };
         t.onerror = function () { U.warn('could not read the image (the host must allow CORS). The image shows without effects.', src); rej(new Error('cors')); };
         t.src = src;
       });
       return ov.texture;
     };
     ov.add = function (layer) { ov.layers.push(layer); el.appendChild(layer.el); if (ov.visible && layer.show) layer.show(); };
-    var stopLoop = null;
-    function frame(dt, now) { if (!ov.measure()) return; for (var i = 0; i < ov.layers.length; i++) if (ov.layers[i].frame) ov.layers[i].frame(dt, now); }
+    ov.remove = function (layer) { var i = ov.layers.indexOf(layer); if (i >= 0) ov.layers.splice(i, 1); if (layer.hide) layer.hide(); if (layer.el && layer.el.parentNode) layer.el.parentNode.removeChild(layer.el); };
+    var stopR = null, stopW = null;
     P.watch(img, function (on) {
       ov.visible = on;
-      ov.layers.forEach(function (l) { if (on ? l.show : l.hide) (on ? l.show : l.hide)(); });
-      if (on && !stopLoop) { ov.measure(); stopLoop = P.loop.add(frame); }
-      if (!on && stopLoop) { stopLoop(); stopLoop = null; }
+      ov.layers.forEach(function (l) { var f = on ? l.show : l.hide; if (f) f(); });
+      if (on && !stopR) { ov.measure(); stopR = P.loop.add(read, 'read'); stopW = P.loop.add(write, 'write'); }
+      if (!on && stopR) { stopR(); stopW(); stopR = stopW = null; }
     }, opts.margin || '30% 0px');
     if (!img.complete) img.addEventListener('load', function () { fitMode = getComputedStyle(img).objectFit; ov.measure(); }, { once: true });
     img.__prismOverlay = ov;
     return ov;
   };
 
-  /* ── Modules and start-up ────────────────────────────────────────── */
-  var mods = {}, booted = false;
+  /* ── Modules, start-up, live re-configuration ────────────────────── */
+  var mods = {}, booted = false, all = [];
   function scan(only) {
     Object.keys(mods).forEach(function (name) {
       if (only && name !== only) return;
@@ -159,7 +200,8 @@
         if (el.hasAttribute('data-prism-manual')) continue;
         el.__prism = el.__prism || {};
         if (el.__prism[name] !== undefined) continue;
-        try { el.__prism[name] = m.mount(el) || null; } catch (e) { el.__prism[name] = null; U.warn(name + ' could not start on', el, e); }
+        try { var inst = el.__prism[name] = m.mount(el) || null; if (inst) all.push({ el: el, name: name, inst: inst }); }
+        catch (e) { el.__prism[name] = null; U.warn(name + ' could not start on', el, e); }
       }
     });
   }
@@ -167,9 +209,32 @@
   /* call after adding content later (CMS lists, tabs, sliders) */
   P.refresh = function () { scan(); };
   /* start one module by hand on an element, with an optional settings object */
-  P.mount = function (name, el, settings) { if (!mods[name]) throw new Error('module "' + name + '" is not loaded'); el.__prism = el.__prism || {}; return (el.__prism[name] = mods[name].mount(el, settings)); };
+  P.mount = function (name, el, settings) {
+    if (!mods[name]) throw new Error('module "' + name + '" is not loaded');
+    el.__prism = el.__prism || {};
+    var inst = el.__prism[name] = mods[name].mount(el, settings);
+    if (inst) all.push({ el: el, name: name, inst: inst });
+    return inst;
+  };
   P.get = function (el, name) { return el && el.__prism ? el.__prism[name] : undefined; };
-  function boot() { booted = true; P.config(true); scan(); }
+  P.instances = function () { all = all.filter(function (r) { return r.el.__prism && r.el.__prism[r.name] === r.inst; }); return all.slice(); };
+  /* re-read settings (after editing the block, or crossing a breakpoint) and apply them live */
+  P.reconfigure = function () { P.config(true); P.instances().forEach(function (r) { if (r.inst.reconfigure) try { r.inst.reconfigure(); } catch (e) { U.warn(e); } }); };
+  if (window.matchMedia) Object.keys(BP).forEach(function (k) { var mq = matchMedia(BP[k]), fn = function () { P.reconfigure(); }; if (mq.addEventListener) mq.addEventListener('change', fn); else if (mq.addListener) mq.addListener(fn); });
+
+  /* the on-page tuner never ships to visitors: it loads only with ?prism-tune in the URL */
+  P.tune = function () {
+    if (P.tuner) return P.tuner.open();
+    var src = SCRIPT ? SCRIPT.replace(/[^/]*$/, 'prism-tuner.min.js') : '';
+    if (!src) { U.warn('cannot find where the library was loaded from; load prism-tuner.min.js yourself'); return; }
+    var s = document.createElement('script'); s.src = src; s.defer = true; document.head.appendChild(s);
+  };
+  function boot() {
+    booted = true; P.config(true);
+    var pc = P.config().performance; if (isObj(pc)) { if (pc.adaptive === false) perf.adaptive = false; if (pc.level != null) setLevel(pc.level); }
+    scan();
+    try { if (/[?&]prism-tune\b/.test(location.search) || sessionStorage.getItem('prism-tune') === '1') { sessionStorage.setItem('prism-tune', '1'); P.tune(); } } catch (e) {}
+  }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot); else setTimeout(boot, 0);
 })();
 /* ════════════════════════════════════════════════════════════════════
@@ -219,7 +284,7 @@
   var GRAIN = "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 .55 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E\")";
 
   function mount(section, settings) {
-    var S = settings || P.resolve('aurora', section.getAttribute('data-prism-aurora'), section, P.AURORA_DEFAULTS);
+    var manual = !!settings, S = settings || P.resolve('aurora', section.getAttribute('data-prism-aurora'), section, P.AURORA_DEFAULTS);
     if (getComputedStyle(section).position === 'static') section.style.position = 'relative';
     section.style.isolation = 'isolate';   // keeps the aurora above the section's background, behind its content
 
@@ -275,7 +340,7 @@
     }
     function resize() {
       W = Math.max(1, section.clientWidth); H = Math.max(1, section.clientHeight);
-      scale = U.clamp(S.resolution, .25, 2) * Math.min(1.25, U.dpr());
+      scale = U.clamp(S.resolution * P.perf.scale([1, .8, .6]), .2, 2) * Math.min(1.25, U.dpr());
       canvas.width = Math.round(W * scale); canvas.height = Math.round(H * scale);
       clearTimeout(resize.t); resize.t = setTimeout(paint, 120);
       if (!TEX) paint();
@@ -317,26 +382,35 @@
 
     blobs(); resize();
     var ro = new ResizeObserver(resize); ro.observe(section);
+    P.perf.on(function () { if (W > 1) resize(); });
     var unwatch = P.watch(section, function (on) {
       if (on && !stop) stop = P.loop.add(draw);
       if (!on && stop) { stop(); stop = null; }
     }, '10% 0px');
 
-    return {
-      settings: S, element: layer,
+    var api = {
+      settings: S, element: layer, kind: 'aurora',
+      defaults: P.AURORA_DEFAULTS,
+      /* re-read the settings block (and breakpoints) and apply every value */
+      reconfigure: function (next) {
+        if (manual && !next) return;
+        next = next || P.resolve('aurora', section.getAttribute('data-prism-aurora'), section, P.AURORA_DEFAULTS);
+        for (var k in next) if (JSON.stringify(next[k]) !== JSON.stringify(S[k])) api.set(k, next[k]);
+      },
       set: function (k, v) {
         S[k] = v;
         if (k === 'blobs' || k === 'seed') blobs();
         if (k === 'resolution') resize();
-        else if (/^(bg|blob)/.test(k) && k !== 'bgInt' && k !== 'bgDrift' && k !== 'bgSweep') { clearTimeout(this._p); this._p = setTimeout(paint, 60); }
+        else if (/^(bg|blob)/.test(k) && k !== 'bgInt' && k !== 'bgDrift' && k !== 'bgSweep') { clearTimeout(api._p); api._p = setTimeout(paint, 60); }
       },
       replay: function () { t = 0; },
-      destroy: function () { if (stop) stop(); unwatch(); ro.disconnect(); layer.remove(); },
+      destroy: function () { if (stop) stop(); unwatch(); ro.disconnect(); layer.remove(); if (section.__prism) section.__prism.aurora = undefined; },
     };
+    return api;
   }
 
   P.aurora = { mount: mount, defaults: P.AURORA_DEFAULTS };
-  P.register('aurora', { selector: '[data-prism-aurora]', mount: function (el) { return mount(el); } });
+  P.register('aurora', { selector: '[data-prism-aurora]', mount: function (el, s) { return mount(el, s); } });
 })();
 /* ════════════════════════════════════════════════════════════════════
    Prism · Statue
@@ -478,10 +552,10 @@ var createShader=(function(){
    var ro=window.ResizeObserver?new ResizeObserver(resize):null;if(ro)ro.observe(canvas);else window.addEventListener("resize",resize);resize();
    var visible=true;
    if(opts.observe&&window.IntersectionObserver){new IntersectionObserver(function(e){visible=e[0].isIntersecting;},{rootMargin:"100px"}).observe(canvas);}
-   var paused=false,clock=0,last=performance.now(),raf=0,frames=0,fpsT=last;
+   var still=0,paused=false,clock=0,last=performance.now(),raf=0,frames=0,fpsT=last;
    function clamp(v,a,b){return Math.max(a,Math.min(b,v));}
    function frame(now){raf=requestAnimationFrame(frame);var dt=Math.min(.05,(now-last)/1000);last=now;if(!visible)return;
-    if(!paused)clock+=dt*(reduce?0.25:1);
+    if(paused){if(still)return;still=1;}else{still=0;clock+=dt*(reduce?0.25:1);}
     var fx0,fy0,fw,fh;if(opts.fit){var F=opts.fit();if(!F)return;fx0=F[0]*dpr;fy0=F[1]*dpr;fw=F[2]*dpr;fh=F[3]*dpr;}else{var pad=opts.pad||0,sc=Math.min((W-pad*2*dpr)/iw,(H-pad*2*dpr)/ih);fw=iw*sc;fh=ih*sc;fx0=(W-fw)/2;fy0=(H-fh)/2;}
     gl.uniform2f(U.uRes,W,H);gl.uniform4f(U.uFit,fx0,fy0,fw,fh);gl.uniform2f(U.uTexel,1/iw,1/ih);
     gl.uniform1f(U.uTime,clock);gl.uniform1f(U.uDpr,dpr);
@@ -497,7 +571,7 @@ var createShader=(function(){
    return{
     destroy:function(){cancelAnimationFrame(raf);if(ro)ro.disconnect();var x=gl.getExtension("WEBGL_lose_context");if(x)x.loseContext();},
     settings:S,
-    set:function(k,v){S[k]=v;if(k==="palette")setPalette();if(k==="quality")resize();},
+    set:function(k,v){S[k]=v;still=0;if(k==="palette")setPalette();if(k==="quality")resize();},
     setAll:function(o){for(var k in o)S[k]=o[k];setPalette();resize();},
     setImage:setImage,canvas:canvas,
     pause:function(p){paused=p;},
@@ -516,47 +590,75 @@ var createShader=(function(){
   P.IMAGE_DEFAULTS.statue = P.STATUE_DEFAULTS;
   P.shader = createShader;
   P.STATUE_PALETTES = Object.keys(createShader.PALETTES);
-  var live = 0, MAX_LIVE = 8;   // browsers allow only a few GPU contexts; images off screen give theirs back
+  /* Browsers allow only a few GPU contexts. Images off screen pause (instant to resume);
+     past the budget, the one seen longest ago gives its context back. */
+  var BUDGET = 6, pool = [];
+  function reclaim() {
+    var live = pool.filter(function (r) { return r.fx; });
+    if (live.length < BUDGET) return true;
+    var idle = live.filter(function (r) { return !r.visible; }).sort(function (a, b) { return a.seen - b.seen; })[0];
+    if (idle) { idle.release(); return true; }
+    return false;
+  }
 
   function mount(img, settings) {
-    var preset = img.getAttribute('data-prism-statue') || img.getAttribute('data-prism');
-    var cfg = settings || P.resolve('image', preset, img, P.IMAGE_DEFAULTS);
+    var preset = function () { return img.getAttribute('data-prism-statue') || img.getAttribute('data-prism'); };
+    var manual = !!settings, cfg = settings || P.resolve('image', preset(), img, P.IMAGE_DEFAULTS);
     if (!settings && !img.hasAttribute('data-prism-statue') && (cfg.effects || []).indexOf('statue') < 0) return null;
     var S = U.merge(U.clone(P.STATUE_DEFAULTS), cfg.statue || {});
     var ov = P.overlay(img, cfg);
-    var canvas = document.createElement('canvas'), fx = null, tex = null, alive = true;
+    var canvas = document.createElement('canvas'), alive = true;
     var overlay = S.mode !== 'replace';
     canvas.className = 'prism-statue';
     canvas.style.cssText = 'position:absolute;inset:0;z-index:1;width:100%;height:100%;display:block;opacity:0;transition:opacity .9s ease' + (overlay ? ';mix-blend-mode:screen' : '');
+    var rec = { fx: null, visible: false, seen: 0 };
     var showImg = function () { if (!overlay) img.style.visibility = ''; };
-    function start() {
-      if (fx || !alive) return;
-      if (live >= MAX_LIVE) return;
-      ov.load().then(function (t) {
-        tex = t; if (fx || !ov.visible || !alive) return;
+    var q = function () { return Math.min(S.quality, P.perf.scale([S.quality, 1.5, 1])); };
+    rec.release = function () { if (!rec.fx) return; rec.fx.destroy(); rec.fx = null; canvas.style.opacity = 0; showImg(); };
+    function show() {
+      rec.visible = true; rec.seen = performance.now();
+      if (!alive) return;
+      if (rec.fx) { rec.fx.pause(false); return; }
+      if (!reclaim()) return;
+      ov.load().then(function (tex) {
+        if (rec.fx || !rec.visible || !alive) return;
         try {
-          fx = createShader(canvas, tex, S, {
+          var opts = U.clone(S); opts.quality = q();
+          rec.fx = createShader(canvas, tex, opts, {
             overlay: overlay,
             fit: function () { return [ov.pad, ov.pad, ov.w, ov.h]; },
             onFirstFrame: function () { canvas.style.opacity = 1; if (!overlay) img.style.visibility = 'hidden'; },
-            onLost: function () { canvas.style.opacity = 0; showImg(); fx = null; live--; },
-            onError: function () { showImg(); },
+            onLost: function () { rec.fx = null; canvas.style.opacity = 0; showImg(); },
+            onError: showImg,
           });
-          if (fx) live++;
         } catch (e) { U.warn('statue effect unavailable', e); showImg(); }
-      }, function () { showImg(); });
+      }, showImg);
     }
-    function stop() { if (!fx) return; fx.destroy(); fx = null; live--; canvas.style.opacity = 0; showImg(); }
-    ov.add({ el: canvas, show: start, hide: stop });
-    return {
-      settings: S, overlay: ov,
-      set: function (k, v) { S[k] = v; if (fx) fx.set(k, v); },
-      destroy: function () { alive = false; stop(); canvas.remove(); },
+    function hide() { rec.visible = false; rec.seen = performance.now(); if (rec.fx) rec.fx.pause(true); }
+    pool.push(rec);
+    var layer = { el: canvas, show: show, hide: hide };
+    ov.add(layer);
+    P.perf.on(function () { if (rec.fx) rec.fx.set('quality', q()); });
+    var api = {
+      settings: S, overlay: ov, kind: 'statue', defaults: P.STATUE_DEFAULTS,
+      set: function (k, v) {
+        S[k] = v;
+        if (k === 'mode') { overlay = v !== 'replace'; rec.release(); canvas.style.mixBlendMode = overlay ? 'screen' : ''; if (rec.visible) show(); return; }
+        if (rec.fx) rec.fx.set(k, k === 'quality' ? q() : v);
+      },
+      reconfigure: function (next) {
+        if (manual && !next) return;
+        next = next || P.resolve('image', preset(), img, P.IMAGE_DEFAULTS);
+        var st = U.merge(U.clone(P.STATUE_DEFAULTS), next.statue || {});
+        for (var k in st) if (st[k] !== S[k]) api.set(k, st[k]);
+      },
+      destroy: function () { alive = false; rec.release(); ov.remove(layer); pool.splice(pool.indexOf(rec), 1); if (img.__prism) img.__prism.statue = undefined; },
     };
+    return api;
   }
 
   P.statue = { mount: mount, defaults: P.STATUE_DEFAULTS };
-  P.register('statue', { selector: 'img[data-prism], img[data-prism-statue]', mount: function (el) { return mount(el); } });
+  P.register('statue', { selector: 'img[data-prism], img[data-prism-statue]', mount: function (el, s) { return mount(el, s); } });
 })();
 /* ════════════════════════════════════════════════════════════════════
    Prism · Sparkle
@@ -641,8 +743,8 @@ var createShader=(function(){
   }
 
   function mount(img, settings) {
-    var preset = img.getAttribute('data-prism-sparkle') || img.getAttribute('data-prism');
-    var cfg = settings || P.resolve('image', preset, img, P.IMAGE_DEFAULTS);
+    var preset = function () { return img.getAttribute('data-prism-sparkle') || img.getAttribute('data-prism'); };
+    var manual = !!settings, cfg = settings || P.resolve('image', preset(), img, P.IMAGE_DEFAULTS);
     if (!settings && !img.hasAttribute('data-prism-sparkle') && (cfg.effects || []).indexOf('sparkle') < 0) return null;
     var S = U.merge(U.clone(P.SPARKLE_DEFAULTS), cfg.sparkle || {});
     sprites();
@@ -692,6 +794,12 @@ var createShader=(function(){
     }
     function resize() {
       front.width = Math.round(ov.W * dpr); front.height = Math.round(ov.H * dpr);
+      /* feather every edge of the layer, so flares, halo and dust fade out instead of
+         stopping at a hard line where the layer ends */
+      var f = Math.max(8, Math.round(ov.pad * .9)) + 'px';
+      var m = 'linear-gradient(to right,transparent,#000 ' + f + ',#000 calc(100% - ' + f + '),transparent),linear-gradient(to bottom,transparent,#000 ' + f + ',#000 calc(100% - ' + f + '),transparent)';
+      wrap.style.webkitMaskImage = wrap.style.maskImage = m;
+      wrap.style.webkitMaskComposite = 'source-in'; wrap.style.maskComposite = 'intersect';
     }
     function put(im, x, y, size, rot, a) {
       if (a < .004 || size < .5) return;
@@ -739,7 +847,7 @@ var createShader=(function(){
         });
       }
       /* glints on the outline */
-      var nG = Math.min(GL.length, Math.round(S.glints)), gs = S.glintStr / 100;
+      var dens = P.perf.scale([1, .7, .45]), nG = Math.min(GL.length, Math.round(S.glints * dens)), gs = S.glintStr / 100;
       for (var i = 0; i < nG && gs > .003; i++) {
         var G = GL[i], ia = U.easeOut(clamp((t - e0 - rr * (.4 + G.ph * .8)) / rr, 0, 1)); if (ia <= 0) continue;
         var tw = Math.pow(.5 - .5 * Math.cos(2 * Math.PI * (t * rate * G.sp + G.ph)), 3), x, y;
@@ -748,7 +856,7 @@ var createShader=(function(){
         put(G.warm < S.warmth / 100 ? STAR_W : STAR_C, x, y, S.glintSize * k * (.45 + G.s * .9) * (.55 + .45 * tw) * 2, G.rot, gs * ia * (.15 + .85 * tw));
       }
       /* dust floating in the glow */
-      var nD = Math.min(DU.length, Math.round(S.dust)), ds = S.dustStr / 100;
+      var nD = Math.min(DU.length, Math.round(S.dust * dens)), ds = S.dustStr / 100;
       for (var d = 0; d < nD && ds > .003; d++) {
         var Pd = DU[d], ib = U.easeOut(clamp((t - e0 - rr * (.6 + Pd.ph)) / rr, 0, 1)); if (ib <= 0) continue;
         var tw2 = .5 - .5 * Math.cos(2 * Math.PI * (t * rate * .7 * Pd.sp + Pd.ph));
@@ -756,21 +864,30 @@ var createShader=(function(){
         put(Pd.warm < S.warmth / 100 ? STAR_W : STAR_C, ox + Math.cos(Pd.a) * dist, oy + Math.sin(Pd.a) * dist, (5 + Pd.s * 12) * k * (.6 + .4 * tw2), 0, ds * ib * Pd.s * (.25 + .75 * tw2));
       }
     }
-    ov.add({
+    var layer = {
       el: wrap, resize: resize,
-      show: function () { running = true; ov.load().then(function (tex) { if (!EDGES.length && !HALO) edges(tex); }, function () {}); },
+      show: function () { running = true; ov.load().then(function (tex) { if (!EDGES.length && !HALO && !edges.q) { edges.q = 1; U.idle(function () { edges(tex); edges.q = 0; }); } }, function () {}); },
       hide: function () { running = false; fx.setTransform(1, 0, 0, 1, 0, 0); fx.clearRect(0, 0, front.width, front.height); },
       frame: frame,
-    });
+    };
+    ov.add(layer);
     seed(); resize();
-    return {
-      settings: S, overlay: ov,
+    var api = {
+      settings: S, overlay: ov, kind: 'sparkle', defaults: P.SPARKLE_DEFAULTS,
+      reconfigure: function (next) {
+        if (manual && !next) return;
+        next = next || P.resolve('image', preset(), img, P.IMAGE_DEFAULTS);
+        var sp = U.merge(U.clone(P.SPARKLE_DEFAULTS), next.sparkle || {});
+        for (var k in sp) if (JSON.stringify(sp[k]) !== JSON.stringify(S[k])) api.set(k, sp[k]);
+        if (next.pad != null) ov.padScale = next.pad;
+      },
       set: function (k, v) { if (k === 'origin') S.origin = v; else S[k] = v; if (k === 'flares' || k === 'ghosts' || k === 'seed') seed(); if (k === 'seed') { EDGES = []; HALO = null; ov.load().then(edges, function () {}); } },
       replay: function () { t = 0; },
-      destroy: function () { running = false; wrap.remove(); },
+      destroy: function () { ov.remove(layer); running = false; if (img.__prism) img.__prism.sparkle = undefined; },
     };
+    return api;
   }
 
   P.sparkle = { mount: mount, defaults: P.SPARKLE_DEFAULTS };
-  P.register('sparkle', { selector: 'img[data-prism], img[data-prism-sparkle]', mount: function (el) { return mount(el); } });
+  P.register('sparkle', { selector: 'img[data-prism], img[data-prism-sparkle]', mount: function (el, s) { return mount(el, s); } });
 })();

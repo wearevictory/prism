@@ -45,7 +45,7 @@
   var GRAIN = "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 .55 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E\")";
 
   function mount(section, settings) {
-    var S = settings || P.resolve('aurora', section.getAttribute('data-prism-aurora'), section, P.AURORA_DEFAULTS);
+    var manual = !!settings, S = settings || P.resolve('aurora', section.getAttribute('data-prism-aurora'), section, P.AURORA_DEFAULTS);
     if (getComputedStyle(section).position === 'static') section.style.position = 'relative';
     section.style.isolation = 'isolate';   // keeps the aurora above the section's background, behind its content
 
@@ -101,7 +101,7 @@
     }
     function resize() {
       W = Math.max(1, section.clientWidth); H = Math.max(1, section.clientHeight);
-      scale = U.clamp(S.resolution, .25, 2) * Math.min(1.25, U.dpr());
+      scale = U.clamp(S.resolution * P.perf.scale([1, .8, .6]), .2, 2) * Math.min(1.25, U.dpr());
       canvas.width = Math.round(W * scale); canvas.height = Math.round(H * scale);
       clearTimeout(resize.t); resize.t = setTimeout(paint, 120);
       if (!TEX) paint();
@@ -143,24 +143,33 @@
 
     blobs(); resize();
     var ro = new ResizeObserver(resize); ro.observe(section);
+    P.perf.on(function () { if (W > 1) resize(); });
     var unwatch = P.watch(section, function (on) {
       if (on && !stop) stop = P.loop.add(draw);
       if (!on && stop) { stop(); stop = null; }
     }, '10% 0px');
 
-    return {
-      settings: S, element: layer,
+    var api = {
+      settings: S, element: layer, kind: 'aurora',
+      defaults: P.AURORA_DEFAULTS,
+      /* re-read the settings block (and breakpoints) and apply every value */
+      reconfigure: function (next) {
+        if (manual && !next) return;
+        next = next || P.resolve('aurora', section.getAttribute('data-prism-aurora'), section, P.AURORA_DEFAULTS);
+        for (var k in next) if (JSON.stringify(next[k]) !== JSON.stringify(S[k])) api.set(k, next[k]);
+      },
       set: function (k, v) {
         S[k] = v;
         if (k === 'blobs' || k === 'seed') blobs();
         if (k === 'resolution') resize();
-        else if (/^(bg|blob)/.test(k) && k !== 'bgInt' && k !== 'bgDrift' && k !== 'bgSweep') { clearTimeout(this._p); this._p = setTimeout(paint, 60); }
+        else if (/^(bg|blob)/.test(k) && k !== 'bgInt' && k !== 'bgDrift' && k !== 'bgSweep') { clearTimeout(api._p); api._p = setTimeout(paint, 60); }
       },
       replay: function () { t = 0; },
-      destroy: function () { if (stop) stop(); unwatch(); ro.disconnect(); layer.remove(); },
+      destroy: function () { if (stop) stop(); unwatch(); ro.disconnect(); layer.remove(); if (section.__prism) section.__prism.aurora = undefined; },
     };
+    return api;
   }
 
   P.aurora = { mount: mount, defaults: P.AURORA_DEFAULTS };
-  P.register('aurora', { selector: '[data-prism-aurora]', mount: function (el) { return mount(el); } });
+  P.register('aurora', { selector: '[data-prism-aurora]', mount: function (el, s) { return mount(el, s); } });
 })();
