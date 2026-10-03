@@ -227,7 +227,7 @@
     }
     var layer = {
       el: wrap, resize: resize,
-      show: function () { running = true; ov.load().then(function (tex) { if (!EDGES.length && !HALO && !edges.q) { edges.q = 1; U.idle(function () { edges(tex); edges.q = 0; }); } }, function () {}); },
+      show: function () { if (layer.idle) return; running = true; ov.load().then(function (tex) { if (!EDGES.length && !HALO && !edges.q) { edges.q = 1; U.idle(function () { edges(tex); edges.q = 0; }); } }, function () {}); },
       hide: function () { running = false; fx.setTransform(1, 0, 0, 1, 0, 0); fx.clearRect(0, 0, front.width, front.height); },
       frame: frame,
     };
@@ -246,6 +246,10 @@
       set: function (k, v) { if (k === 'origin') S.origin = v; else S[k] = v; if (k === 'quality' || k === 'maxPixels') resize(); if (k === 'flares' || k === 'seed') seed();
         if (/^flare(Pal|Hue|Sat)$/.test(k)) { clearTimeout(api._fs); api._fs = setTimeout(function () { FS = flareSprites(S.flarePal, S.flareHue, S.flareSat); }, 40); } if (k === 'seed') { EDGES = []; HALO = null; ov.load().then(edges, function () {}); } },
       replay: function () { t = 0; },
+      /* pause(): clear and stop drawing, but keep the outline it found so resume() is instant */
+      pause: function () { if (layer.idle) return; layer.hide(); layer.idle = true; ov.sync(); },
+      resume: function () { if (!layer.idle) return; layer.idle = false; t = 0; if (ov.visible) layer.show(); ov.sync(); },
+      isPaused: function () { return !!layer.idle; },
       destroy: function () { ov.remove(layer); running = false; if (img.__prism) img.__prism.sparkle = undefined; },
     };
     return api;

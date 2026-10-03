@@ -9,7 +9,7 @@
   if (window.Prism && window.Prism.core) return;
   var P = window.Prism = window.Prism || {};
   P.core = true;
-  P.version = '2.3.0';
+  P.version = '2.4.0';
   var SCRIPT = (document.currentScript && document.currentScript.src) || '';
 
   /* ── Helpers ─────────────────────────────────────────────────────── */
@@ -205,14 +205,20 @@
     ov.current = null;
     /* reuse the file the browser already chose for this screen, so nothing downloads twice */
     ov.load = function () { if (!ov.texture) { ov.current = ov.current || img.getAttribute('data-prism-src') || img.currentSrc || U.pickSrc(img, img.clientWidth || 600); ov.texture = ov.fetch(ov.current); } return ov.texture; };
-    ov.add = function (layer) { ov.layers.push(layer); el.appendChild(layer.el); if (ov.visible && layer.show) layer.show(); };
-    ov.remove = function (layer) { var i = ov.layers.indexOf(layer); if (i >= 0) ov.layers.splice(i, 1); if (layer.hide) layer.hide(); if (layer.el && layer.el.parentNode) layer.el.parentNode.removeChild(layer.el); };
+    /* follow the image only while it is on screen and at least one layer is awake.
+       A layer marks itself asleep with layer.idle = true, then calls ov.sync(). */
     var stopR = null, stopW = null;
+    ov.sync = function () {
+      var awake = ov.visible && ov.layers.some(function (l) { return !l.idle; });
+      if (awake && !stopR) { ov.measure(); stopR = P.loop.add(read, 'read'); stopW = P.loop.add(write, 'write'); }
+      if (!awake && stopR) { stopR(); stopW(); stopR = stopW = null; }
+    };
+    ov.add = function (layer) { ov.layers.push(layer); el.appendChild(layer.el); if (ov.visible && layer.show) layer.show(); ov.sync(); };
+    ov.remove = function (layer) { var i = ov.layers.indexOf(layer); if (i >= 0) ov.layers.splice(i, 1); if (layer.hide) layer.hide(); if (layer.el && layer.el.parentNode) layer.el.parentNode.removeChild(layer.el); ov.sync(); };
     P.watch(img, function (on) {
       ov.visible = on;
       ov.layers.forEach(function (l) { var f = on ? l.show : l.hide; if (f) f(); });
-      if (on && !stopR) { ov.measure(); stopR = P.loop.add(read, 'read'); stopW = P.loop.add(write, 'write'); }
-      if (!on && stopR) { stopR(); stopW(); stopR = stopW = null; }
+      ov.sync();
     }, opts.margin || '30% 0px');
     if (!img.complete) img.addEventListener('load', function () { fitMode = getComputedStyle(img).objectFit; ov.measure(); }, { once: true });
     img.__prismOverlay = ov;

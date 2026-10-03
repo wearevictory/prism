@@ -1,21 +1,12 @@
-## Changelog
-
-### v2.4.0
-- **New: Reveal** (`dist/prism-reveal.min.js`). See the Reveal section.
-- **Core:** an image's overlay only follows the image while at least one of its effects is awake. Paused or removed effects no longer cost anything per frame. Layers mark themselves with `layer.idle` and call `overlay.sync()`.
-- **Statue:** new `pause()`, `resume()`, `isPaused()` and `running()`. A paused statue shows the plain image, keeps its GPU context and stops requesting frames. When the 6-context budget is full, paused images give their context back first, like off-screen ones.
-- **Sparkle:** new `pause()`, `resume()` and `isPaused()`. Resume keeps the outline it found and restarts the fade-in.
-- No changes to attributes or settings. Existing `data-prism` images behave as before.
-
 ## Reveal (v2.4.0)
 
-Brings a still image to life on interaction. It mounts the existing Statue and Sparkle effects, washes them in from where the visitor entered, clicked or tapped, and pauses them on the way out, so the next reveal is instant. Only one image is live at a time.
+Brings a still image to life on interaction. It mounts the existing Statue and Sparkle effects, washes them in from where the visitor entered, clicked or tapped, and removes them on the way out. Only one image is live at a time.
 
 ### Files
 
 ```
 src/prism-reveal.js        source
-dist/prism-reveal.min.js   9 KB, about 3.5 KB compressed. Load after prism.min.js v2.4.0
+dist/prism-reveal.min.js   9 KB, about 3 KB compressed. Load after prism.min.js
 ```
 
 Reveal is its own file so pages without it don't download it. Its CSS is built in.

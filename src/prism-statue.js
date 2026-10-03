@@ -142,7 +142,7 @@ var createShader=(function(){
    var clock=0,last=performance.now(),raf=0,frames=0,fpsT=last;
    function clamp(v,a,b){return Math.max(a,Math.min(b,v));}
    function frame(now){raf=requestAnimationFrame(frame);acc+=(now-last)/1000;last=now;if(!visible)return;if(S.fps&&acc<1/S.fps-.004)return;var dt=Math.min(.1,acc);acc=0;
-    if(paused){if(still)return;still=1;}else{still=0;clock+=dt*(reduce?0.25:1);}
+    if(paused){if(still){cancelAnimationFrame(raf);raf=0;return;}still=1;}else{still=0;clock+=dt*(reduce?0.25:1);}
     var B;if(opts.fit){var F=opts.fit();if(!F)return;B=[F[0]*dpr,F[1]*dpr,F[2]*dpr,F[3]*dpr];}else{var pad=(opts.pad||0)*dpr;B=[pad,pad,W-2*pad,H-2*pad];}
     var FA=contain(B[0],B[1],B[2],B[3],iw,ih);
     gl.uniform2f(U.uRes,W,H);gl.uniform4f(U.uFit,FA[0],FA[1],FA[2],FA[3]);gl.uniform2f(U.uTexel,1/iw,1/ih);
@@ -155,14 +155,16 @@ var createShader=(function(){
     gl.drawArrays(gl.TRIANGLES,0,3);if(opts.onFirstFrame&&!opts.__done){opts.__done=1;opts.onFirstFrame();}
     frames++;if(opts.onFps&&now-fpsT>1000){opts.onFps(Math.round(frames*1000/(now-fpsT)));frames=0;fpsT=now;}
    }
+   /* a paused shader draws one still frame, then stops asking for frames until it is woken */
+   function wake(){if(!raf){last=performance.now();acc=0;raf=requestAnimationFrame(frame);}}
    raf=requestAnimationFrame(frame);
    return{
     destroy:function(){cancelAnimationFrame(raf);if(ro)ro.disconnect();var x=gl.getExtension("WEBGL_lose_context");if(x)x.loseContext();},
     settings:S,
-    set:function(k,v){S[k]=v;still=0;if(k==="palette")setPalette();if(k==="quality")resize();},
-    setAll:function(o){for(var k in o)S[k]=o[k];setPalette();resize();},
-    setImage:setImage,canvas:canvas,
-    pause:function(p){paused=p;},
+    set:function(k,v){S[k]=v;still=0;if(k==="palette")setPalette();if(k==="quality")resize();wake();},
+    setAll:function(o){for(var k in o)S[k]=o[k];still=0;setPalette();resize();wake();},
+    setImage:function(im){setImage(im);wake();},canvas:canvas,
+    pause:function(p){paused=p;if(!p)wake();},
     isPaused:function(){return paused;}
    };
   }
@@ -181,13 +183,13 @@ var createShader=(function(){
   P.IMAGE_DEFAULTS.statue = P.STATUE_DEFAULTS;
   P.shader = createShader;
   P.STATUE_PALETTES = Object.keys(createShader.PALETTES);
-  /* Browsers allow only a few GPU contexts. Images off screen pause (instant to resume);
-     past the budget, the one seen longest ago gives its context back. */
+  /* Browsers allow only a few GPU contexts. Images off screen or paused by the page
+     pause (instant to resume); past the budget, the one seen longest ago gives its context back. */
   var BUDGET = 6, pool = [];
   function reclaim() {
     var live = pool.filter(function (r) { return r.fx; });
     if (live.length < BUDGET) return true;
-    var idle = live.filter(function (r) { return !r.visible; }).sort(function (a, b) { return a.seen - b.seen; })[0];
+    var idle = live.filter(function (r) { return !r.visible || r.held; }).sort(function (a, b) { return a.seen - b.seen; })[0];
     if (idle) { idle.release(); return true; }
     return false;
   }
@@ -203,7 +205,7 @@ var createShader=(function(){
     canvas.className = 'prism-statue';
     /* the GPU canvas covers the picture only, never the sparkle margin around it */
     canvas.style.cssText = 'position:absolute;left:0;top:0;width:1px;height:1px;z-index:1;display:block;opacity:0;transition:opacity .9s ease' + (overlay ? ';mix-blend-mode:screen' : '');
-    var rec = { fx: null, visible: false, seen: 0 };
+    var rec = { fx: null, visible: false, seen: 0, held: false };
     /* hide the original with a filter, not visibility, so screen readers keep its alt text and taps still reach it */
     var origFilter = img.style.filter;
     var hideImg = function () { img.style.filter = 'opacity(0)'; };
@@ -217,11 +219,11 @@ var createShader=(function(){
     rec.release = function () { if (!rec.fx) return; rec.fx.destroy(); rec.fx = null; canvas.style.opacity = 0; showImg(); };
     function show() {
       rec.visible = true; rec.seen = performance.now();
-      if (!alive) return;
-      if (rec.fx) { rec.fx.pause(false); return; }
+      if (!alive || rec.held) return;
+      if (rec.fx) { rec.fx.pause(false); canvas.style.opacity = 1; if (!overlay) hideImg(); return; }
       if (!reclaim()) return;
       ov.load().then(function (tex) {
-        if (rec.fx || !rec.visible || !alive) return;
+        if (rec.fx || !rec.visible || !alive || rec.held) return;
         try {
           resize(); var opts = U.clone(S); opts.quality = lastQ = q();
           rec.fx = createShader(canvas, tex, opts, {
@@ -252,6 +254,21 @@ var createShader=(function(){
         var st = U.merge(U.clone(P.STATUE_DEFAULTS), next.statue || {});
         for (var k in st) if (st[k] !== S[k]) api.set(k, st[k]);
       },
+      /* pause(): stop drawing and show the plain image, but keep the GPU context so resume() is instant.
+         Paused images are the first to give their context back when the budget is full. */
+      pause: function () {
+        if (rec.held) return;
+        rec.held = true; rec.seen = performance.now(); layer.idle = true;
+        if (rec.fx) rec.fx.pause(true);
+        canvas.style.opacity = 0; showImg(); ov.sync();
+      },
+      resume: function () {
+        if (!rec.held) return;
+        rec.held = false; layer.idle = false; ov.sync();
+        if (rec.visible) show();
+      },
+      isPaused: function () { return rec.held; },
+      running: function () { return !!rec.fx && !rec.held; },
       destroy: function () { alive = false; rec.release(); ov.remove(layer); pool.splice(pool.indexOf(rec), 1); if (img.__prism) img.__prism.statue = undefined; },
     };
     return api;
