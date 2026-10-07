@@ -10,7 +10,7 @@
   if (window.Prism && window.Prism.core) return;
   var P = window.Prism = window.Prism || {};
   P.core = true;
-  P.version = '3.0.0';
+  P.version = '3.0.1';
   var SCRIPT = (document.currentScript && document.currentScript.src) || '';
 
   /* ── Helpers ─────────────────────────────────────────────────────── */

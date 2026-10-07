@@ -14,12 +14,12 @@
   var U = P.util, clamp = U.clamp, lerp = U.lerp;
 
   P.SPARKLE_DEFAULTS = {
-    glints: 52, glintSize: 95, glintStr: 85,    // count 0–160, size px (at an 800px-tall image), strength 0–100
-    glintRate: .45,                             // twinkle per second, capped at 1
-    warmth: 72,                                 // % of glints that are gold rather than icy
-    halo: 50,                                   // soft light hugging the outline, 0–100
-    bloom: 45,                                  // glow at the light's source, 0–60
-    flares: 6, flareStr: 42,                    // rays of coloured light: count 0–24, strength 0–100
+    glints: 27, glintSize: 50, glintStr: 85,    // count 0–160, size px (at an 800px-tall image), strength 0–100
+    glintRate: .25,                             // twinkle per second, capped at 1
+    warmth: 50,                                 // % of glints that are gold rather than icy
+    halo: 10,                                   // soft light hugging the outline, 0–100
+    bloom: 0,                                   // glow at the light's source, 0–60
+    flares: 24, flareStr: 19,                   // rays of coloured light: count 0–24, strength 0–100
     flarePal: 'crystal',                        // crystal | warm | cool | spectrum | white
     flareHue: 0, flareSat: 100,                 // turn every ray's colour (degrees), and how rich it is (%)
     flareLen: 1, flareWidth: 1, flareSpin: .9,  // ray length and width (× normal), and turn speed (degrees per second)
@@ -27,7 +27,7 @@
     fadeIn: 1200, seed: 8,
     quality: 1.25,       // pixel density cap: halo and rays are soft, so they don't need full retina
     maxPixels: 1500000,  // and the layer never draws more than this many pixels
-    fps: 30,
+    fps: 60,
   };
   P.IMAGE_DEFAULTS = P.IMAGE_DEFAULTS || {};
   P.IMAGE_DEFAULTS.effects = P.IMAGE_DEFAULTS.effects || ['statue', 'sparkle'];

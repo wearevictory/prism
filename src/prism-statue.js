@@ -288,12 +288,12 @@
   P.STATUE_DEFAULTS = {
     mode: 'replace',
     /* the look: Liquid metal */
-    palette: 'champagne', light: 1, tint: .25, clarity: .4, speed: .14, flow: 1.6, flowScale: 1.5, angle: -35, scale: 2.1, sharp: 2.6,
-    follow: .55, disp: .45, hue: 0, thresh: .32, soft: .38, edge: .75, glitter: .15, gsize: 20, twinkle: .7, grain: 0,
+    palette: 'champagne', light: 1, tint: .25, clarity: .4, speed: .14, flow: .1, flowScale: 3, angle: -35, scale: 2.1, sharp: 2.6,
+    follow: .55, disp: .45, hue: 0, thresh: .32, soft: .38, edge: 1.24, glitter: .15, gsize: 20, twinkle: .7, grain: 0,
     /* the light pool under the pointer */
     radius: .5, elevation: .75, idleLight: 0, wrap: .8, poolDisp: 1.5,
     /* the glass surface */
-    shape: 1.3, bevel: .04, folds: .5, liquid: .75, liquidScale: 1.2,
+    shape: .04, bevel: .04, folds: .5, liquid: .15, liquidScale: .4,
     /* refraction and reflections */
     thickness: .004, spread: .25, spec: .8, shine: 30, irid: .6, sheen: .6,
     /* interaction */

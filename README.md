@@ -1,4 +1,4 @@
-# Prism FX v3.0.0
+# Prism FX v3.0.1
 
 Light effects for Webflow, driven by attributes and one JSON settings block.
 
@@ -30,7 +30,7 @@ Any value you leave out uses the library default, and the defaults are the Liqui
 2. **Before `</body>`**:
 
 ```html
-<script src="https://cdn.jsdelivr.net/gh/wearevictory/prism@v3.0.0/dist/prism.min.js" defer></script>
+<script src="https://cdn.jsdelivr.net/gh/wearevictory/prism@v3.0.1/dist/prism.min.js" defer></script>
 ```
 
 3. **In the Designer**, add custom attributes:
@@ -106,10 +106,10 @@ Hints never run while the page is scrolling, while the image is off screen, in a
 
 | Key | Default | What it does |
 |---|---|---|
-| `shape` | `1.3` | How strongly the outline curves like thick glass |
+| `shape` | `0.04` | How strongly the outline curves like thick glass |
 | `bevel` | `0.04` | How far the curve reaches in from the outline |
 | `folds` | `0.5` | Light catches folds, hair and facets from the picture's own shading |
-| `liquid` / `liquidScale` | `0.75` / `1.2` | Slow liquid metal ripple, and its size. Moves only while lit |
+| `liquid` / `liquidScale` | `0.15` / `0.4` | Slow liquid metal ripple, and its size. Moves only while lit |
 
 **Refraction and reflections**
 
@@ -123,7 +123,7 @@ Hints never run while the page is scrolling, while the image is off screen, in a
 | `irid` | `0.6` | How much the highlight colour shifts as the surface turns |
 | `sheen` | `0.6` | Soft coloured reflection on the curved edges |
 
-**Shimmer** (the v2 statue light): `palette` (`champagne`, `prism`, `diamond`, `crystal`, `shard`, `thermal`), `light`, `tint`, `clarity`, `speed`, `flow`, `flowScale`, `angle`, `scale`, `sharp`, `follow`, `disp`, `hue`, `thresh`, `soft`, `edge`, `glitter`, `gsize`, `twinkle`, `grain`.
+**Shimmer** (the v2 statue light; v3.0.1 defaults `flow` 0.1, `flowScale` 3, `edge` 1.24): `palette` (`champagne`, `prism`, `diamond`, `crystal`, `shard`, `thermal`), `light`, `tint`, `clarity`, `speed`, `flow`, `flowScale`, `angle`, `scale`, `sharp`, `follow`, `disp`, `hue`, `thresh`, `soft`, `edge`, `glitter`, `gsize`, `twinkle`, `grain`.
 
 **Drawing**
 
@@ -196,8 +196,8 @@ Open any page with `?prism-tune` in the URL. Pick an element, change values on t
 
 ## Publishing
 
-1. Push to the repo and tag the release: `git tag v3.0.0 && git push --tags`.
-2. The script URL is `https://cdn.jsdelivr.net/gh/wearevictory/prism@v3.0.0/dist/prism.min.js`. jsDelivr needs the repo to be public.
+1. Push to the repo and tag the release: `git tag v3.0.1 && git push --tags`.
+2. The script URL is `https://cdn.jsdelivr.net/gh/wearevictory/prism@v3.0.1/dist/prism.min.js`. jsDelivr needs the repo to be public.
 3. Tag each release and change the version in the URL. Branch links like `@main` are cached for hours. To refresh a URL, open it with `purge.jsdelivr.net` in place of `cdn.jsdelivr.net`.
 
 ## Troubleshooting
@@ -214,6 +214,9 @@ Open any page with `?prism-tune` in the URL. Pick an element, change values on t
 `npm run build` (or `bash build.sh`) builds `dist/` from `src/`. `dist/prism.min.js` bundles core, aurora, statue, sparkle and dust.
 
 ## Changelog
+
+**v3.0.1**
+- New defaults, merged from the Prism tuner and the glass lab. Statue: `flow` 0.1, `flowScale` 3, `edge` 1.24, `shape` 0.04, `liquid` 0.15, `liquidScale` 0.4. Sparkle: `glints` 27, `glintSize` 50, `glintRate` 0.25, `warmth` 50, `halo` 10, `bloom` 0, `flares` 24, `flareStr` 19, `fps` 60.
 
 **v3.0.0**
 - Statue: Liquid metal look; pointer light (hover and tap) with glass refraction, colour split and spectral highlights; glass surface built from the cutout; hints at rest; draws only when something moves.

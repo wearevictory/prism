@@ -10,7 +10,7 @@
   if (window.Prism && window.Prism.core) return;
   var P = window.Prism = window.Prism || {};
   P.core = true;
-  P.version = '3.0.0';
+  P.version = '3.0.1';
   var SCRIPT = (document.currentScript && document.currentScript.src) || '';
 
   /* ── Helpers ─────────────────────────────────────────────────────── */
@@ -746,12 +746,12 @@
   P.STATUE_DEFAULTS = {
     mode: 'replace',
     /* the look: Liquid metal */
-    palette: 'champagne', light: 1, tint: .25, clarity: .4, speed: .14, flow: 1.6, flowScale: 1.5, angle: -35, scale: 2.1, sharp: 2.6,
-    follow: .55, disp: .45, hue: 0, thresh: .32, soft: .38, edge: .75, glitter: .15, gsize: 20, twinkle: .7, grain: 0,
+    palette: 'champagne', light: 1, tint: .25, clarity: .4, speed: .14, flow: .1, flowScale: 3, angle: -35, scale: 2.1, sharp: 2.6,
+    follow: .55, disp: .45, hue: 0, thresh: .32, soft: .38, edge: 1.24, glitter: .15, gsize: 20, twinkle: .7, grain: 0,
     /* the light pool under the pointer */
     radius: .5, elevation: .75, idleLight: 0, wrap: .8, poolDisp: 1.5,
     /* the glass surface */
-    shape: 1.3, bevel: .04, folds: .5, liquid: .75, liquidScale: 1.2,
+    shape: .04, bevel: .04, folds: .5, liquid: .15, liquidScale: .4,
     /* refraction and reflections */
     thickness: .004, spread: .25, spec: .8, shine: 30, irid: .6, sheen: .6,
     /* interaction */
@@ -1053,12 +1053,12 @@
   var U = P.util, clamp = U.clamp, lerp = U.lerp;
 
   P.SPARKLE_DEFAULTS = {
-    glints: 52, glintSize: 95, glintStr: 85,    // count 0–160, size px (at an 800px-tall image), strength 0–100
-    glintRate: .45,                             // twinkle per second, capped at 1
-    warmth: 72,                                 // % of glints that are gold rather than icy
-    halo: 50,                                   // soft light hugging the outline, 0–100
-    bloom: 45,                                  // glow at the light's source, 0–60
-    flares: 6, flareStr: 42,                    // rays of coloured light: count 0–24, strength 0–100
+    glints: 27, glintSize: 50, glintStr: 85,    // count 0–160, size px (at an 800px-tall image), strength 0–100
+    glintRate: .25,                             // twinkle per second, capped at 1
+    warmth: 50,                                 // % of glints that are gold rather than icy
+    halo: 10,                                   // soft light hugging the outline, 0–100
+    bloom: 0,                                   // glow at the light's source, 0–60
+    flares: 24, flareStr: 19,                   // rays of coloured light: count 0–24, strength 0–100
     flarePal: 'crystal',                        // crystal | warm | cool | spectrum | white
     flareHue: 0, flareSat: 100,                 // turn every ray's colour (degrees), and how rich it is (%)
     flareLen: 1, flareWidth: 1, flareSpin: .9,  // ray length and width (× normal), and turn speed (degrees per second)
@@ -1066,7 +1066,7 @@
     fadeIn: 1200, seed: 8,
     quality: 1.25,       // pixel density cap: halo and rays are soft, so they don't need full retina
     maxPixels: 1500000,  // and the layer never draws more than this many pixels
-    fps: 30,
+    fps: 60,
   };
   P.IMAGE_DEFAULTS = P.IMAGE_DEFAULTS || {};
   P.IMAGE_DEFAULTS.effects = P.IMAGE_DEFAULTS.effects || ['statue', 'sparkle'];
