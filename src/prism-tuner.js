@@ -50,8 +50,40 @@
       SG('fps', 'Frame rate', [[24, '24'], [30, '30'], [60, '60']], 'Redraws per second. The turn is slow, so 30 looks the same as 60 at half the work.'),
     ],
     statue: [
+      G('Pointer light', 'Where the cursor rests or a finger taps, the glass comes alive.'),
+      SG('pointer', 'Follow the pointer', [[true, 'On'], [false, 'Off']], 'Off: no hover or tap light, and no hints.'),
+      R('radius', 'Pool size', .08, .7, .01, '', 'How far the effect reaches around the pointer, as a share of the image.', on('pointer')),
+      R('elevation', 'Light height', .05, 1.2, .01, '', 'Low skims the surface for sharper, more dramatic highlights. High spreads them softly.', on('pointer')),
+      R('lag', 'Follow lag', 0, 600, 10, 'ms', 'How far the light trails the pointer. Higher feels heavier and more cinematic.', on('pointer')),
+      R('easeIn', 'Fade in', .15, 1.5, .05, 's', 'How long the glass takes to come alive. Never faster than 0.15 s.', on('pointer')),
+      R('easeOut', 'Fade out', .15, 2, .05, 's', 'How long it takes to settle after the pointer leaves.', on('pointer')),
+      R('touchHold', 'Tap duration', 1, 8, .5, 's', 'On phones, how long the light stays after a tap.', on('pointer')),
+      SG('touchDrag', 'Sideways drag on phones', [[true, 'Moves the light'], [false, 'Tap only']], 'Tap only is safer inside carousels, where a sideways drag must swipe.', on('pointer')),
+      G('At rest'),
+      SG('idle', 'When nobody is interacting', [['still', 'Still'], ['hint', 'Hint'], ['drift', 'Drift'], ['live', 'Live']], 'Still draws one frame and stops. Hint glints now and then to show it’s interactive, and draws nothing in between. Drift and Live draw continuously.'),
+      SG('hintStyle', 'Hint style', [['sweep', 'Sweep'], ['breathe', 'Breathe']], 'Sweep: a soft glint crosses the image. Breathe: the whole image shimmers faintly, then rests.', is('idle', ['hint'])),
+      R('hintEvery', 'Hint every', 3, 15, .5, 's', 'Time between hints. The GPU is idle in between.', is('idle', ['hint'])),
+      R('hintDur', 'Hint length', .8, 3, .1, 's', 'How long each hint lasts.', is('idle', ['hint'])),
+      R('hintStrength', 'Hint strength', .05, .6, .01, '', 'Keep it faint: it should invite, not perform.', is('idle', ['hint'])),
+      SG('hintRepeat', 'Hints stop', [['once', 'After first use'], ['always', 'Never']], 'After first use: once someone has really used the image, it stops hinting.', is('idle', ['hint'])),
+      R('idleLight', 'Shimmer outside the light', 0, 1, .01, '', 'How much shimmer shows away from the pointer. 0 keeps the rest of the image calm.', is('idle', ['still', 'hint', 'drift'])),
+      G('Glass surface', 'Built from the cutout itself. Set View to Surface to see it.'),
+      R('shape', 'Rounded edges', 0, 2, .01, '', 'How strongly the outline curves like thick glass. Refraction is strongest here.'),
+      R('bevel', 'Edge width', .005, .08, .001, '', 'How far the curve reaches in from the outline.', on('shape')),
+      R('folds', 'Folds', 0, 2, .01, '', 'Lets light catch folds, hair and facets, using the picture’s own shading.'),
+      R('liquid', 'Liquid', 0, 1.5, .01, '', 'A slow ripple across the surface, like liquid metal. Moves only while the light is on.'),
+      R('liquidScale', 'Ripple size', .4, 4, .01, '', 'Low: broad, slow waves. High: fine ripples.', on('liquid')),
+      G('Refraction and reflections'),
+      R('thickness', 'Glass thickness', 0, .06, .001, '', 'How far the picture bends through the glass under the light.', is('mode', ['replace'])),
+      R('spread', 'Colour split', 0, 1.2, .01, '', 'How far red and blue separate as light passes through.', on('thickness')),
+      R('poolDisp', 'Rainbow in the light', 0, 4, .05, '×', 'Extra dispersion on the shimmer inside the pool.'),
+      R('wrap', 'Wrap around form', 0, 2, .01, '', 'Bends the light bands around the shape instead of crossing it in flat stripes.'),
+      R('spec', 'Highlights', 0, 1.2, .01, '', 'Spectral highlights where the surface faces the light. Kept below white.'),
+      R('shine', 'Polish', 4, 120, 1, '', 'Low: a soft satin glow. High: small, sharp glints.', on('spec')),
+      R('irid', 'Iridescence', 0, 3, .01, '', 'How much the highlight colour shifts as the surface turns.', on('spec')),
+      R('sheen', 'Edge sheen', 0, 1, .01, '', 'Soft coloured reflection along the curved edges.'),
       G('Light colour', 'Light that flows through the glass of the image itself.'),
-      SG('palette', 'Colours', [['prism', 'Prism'], ['diamond', 'Diamond'], ['crystal', 'Crystal'], ['champagne', 'Champagne'], ['shard', 'Shard']], 'The colours the light breaks into as it moves through the glass.'),
+      SG('palette', 'Colours', [['champagne', 'Champagne'], ['prism', 'Prism'], ['diamond', 'Diamond'], ['crystal', 'Crystal'], ['shard', 'Shard']], 'The colours the light breaks into as it moves through the glass.'),
       R('light', 'Light strength', 0, 1.6, .01, '', 'How bright the moving light is where it lands. 0 shows the plain render.'),
       R('tint', 'Tint', 0, 1, .01, '', 'How much the light colours stain the glass, even where no light band is passing.', is('mode', ['replace'])),
       R('clarity', 'Clarity', 0, 1, .01, '', 'Sharpens fine detail like facets and gold trim.', is('mode', ['replace'])),
@@ -70,14 +102,11 @@
       G('Drawing and performance'),
       SG('mode', 'Drawing', [['replace', 'Full GPU'], ['overlay', 'Light on top']], 'Full GPU redraws the whole picture (needed for Tint and Clarity). Light on top keeps your original image and only adds light.'),
       SG('quality', 'Sharpness', [[1, 'Battery'], [1.5, 'Balanced'], [2, 'Sharp']], 'Pixel density on retina screens. Balanced is hard to tell from Sharp and much lighter.'),
-      SG('fps', 'Frame rate', [[24, '24'], [30, '30'], [60, '60']], 'Redraws per second. With slow light, 30 looks the same as 60.'),
+      SG('fps', 'Frame rate at rest', [[24, '24'], [30, '30'], [60, '60']], 'For hints, drift and live shimmer. With slow light, 30 looks the same as 60.'),
+      SG('pointerFps', 'Frame rate while interacting', [[30, '30'], [60, '60']], 'Following a cursor at 30 can feel steppy.', on('pointer')),
+      SG('view', 'View', [['final', 'Final'], ['surface', 'Surface'], ['pool', 'Light pool']], 'Surface shows the glass shape as colours. Light pool shows where the effect reaches. For tuning only.'),
     ],
     sparkle: [
-      G('Dust', 'Fine specks floating around the image.'),
-      R('dust', 'Amount', 0, 1000, 10, '', 'How many specks. Above about 600, older phones automatically draw fewer.'),
-      R('dustStr', 'Brightness', 0, 100, 1, '', 'How bright each speck is.', on('dust')),
-      R('dustSize', 'Speck size', .3, 3, .05, '×', 'Bigger specks read as more dust without the cost of drawing more.', on('dust')),
-      R('dustSpread', 'Spread', .3, 2.5, .05, '×', 'How far the dust floats from the light source. Very wide spreads fade at the layer’s edge; raise Reach if so.', on('dust')),
       G('Rays', 'Long streaks of coloured light fanning out from the source.'),
       R('flares', 'Number of rays', 0, 24, 1, '', 'How many rays. 0 turns them off.'),
       R('flareStr', 'Brightness', 0, 100, 1, '', 'How bright the rays are.', on('flares')),
@@ -94,16 +123,40 @@
       G('Glow'),
       R('halo', 'Halo', 0, 100, 1, '', 'A soft light hugging the outside of the image’s outline.'),
       R('bloom', 'Bloom', 0, 60, 1, '', 'A warm glow around the light source point.'),
-      R('glintRate', 'Twinkle speed', .05, 1, .05, '/s', 'How often glints and dust shimmer. Capped at once a second.'),
-      R('warmth', 'Warmth', 0, 100, 1, '%', 'Share of specks and stars that are gold rather than icy white.'),
-      G('Light source on the image', 'The point the dust, rays and bloom radiate from.'),
+      R('glintRate', 'Twinkle speed', .05, 1, .05, '/s', 'How often glints shimmer. Capped at once a second.'),
+      R('warmth', 'Warmth', 0, 100, 1, '%', 'Share of stars that are gold rather than icy white.'),
+      G('Light source on the image', 'The point the rays and bloom radiate from.'),
       R('origin.x', 'Horizontal', 0, 1, .01, '', '0 is the image’s left edge, 1 its right.'),
       R('origin.y', 'Vertical', 0, 1, .01, '', '0 is the image’s top, 1 its bottom.'),
       G('Performance'),
-      SG('quality', 'Sharpness', [[1, 'Battery'], [1.25, 'Balanced'], [2, 'Sharp']], 'Pixel density of the sparkle layer. Dust and rays are soft, so Balanced looks the same.'),
+      SG('quality', 'Sharpness', [[1, 'Battery'], [1.25, 'Balanced'], [2, 'Sharp']], 'Pixel density of the sparkle layer. Halo and rays are soft, so Balanced looks the same.'),
+      SG('fps', 'Frame rate', [[24, '24'], [30, '30'], [60, '60']], 'Redraws per second.'),
+    ],
+    dust: [
+      G('Dust', 'Fine specks floating in the light, drawn on the section.'),
+      R('dust', 'Amount', 0, 1000, 10, '', 'How many specks. Above about 600, older phones automatically draw fewer.'),
+      R('dustStr', 'Brightness', 0, 100, 1, '', 'How bright each speck is.', on('dust')),
+      R('dustSize', 'Speck size', .3, 3, .05, '×', 'Bigger specks read as more dust without the cost of drawing more.', on('dust')),
+      R('glintRate', 'Twinkle speed', .05, 1, .05, '/s', 'How often the specks shimmer. Capped at once a second.', on('dust')),
+      R('warmth', 'Warmth', 0, 100, 1, '%', 'Share of specks that are gold rather than icy white.', on('dust')),
+      R('react', 'Brighten on interaction', 0, 1, .01, '', 'Extra brightness while someone lights an image in this section.', on('dust')),
+      G('Where it floats'),
+      SG('layout', 'Layout', [['radial', 'Around the light'], ['field', 'Across the section']], 'Around the light: gathered around the image’s glow. Across the section: spread evenly, rising slowly.'),
+      R('dustSpread', 'Spread', .3, 2.5, .05, '×', 'How far the dust floats from the light, in image sizes.', is('layout', ['radial'])),
+      R('rise', 'Rise speed', 0, 40, 1, 'px/s', 'How fast specks drift upward.', is('layout', ['field'])),
+      R('origin.x', 'Light: horizontal', 0, 1, .01, '', 'Where on the image the light sits, left to right.', function (s) { return s.layout !== 'field' && !!s.anchor; }),
+      R('origin.y', 'Light: vertical', 0, 1, .01, '', 'Where on the image the light sits, top to bottom.', function (s) { return s.layout !== 'field' && !!s.anchor; }),
+      R('x', 'Horizontal', 0, 100, 1, '%', 'Centre of the dust in the section, when it isn’t following an image.', function (s) { return s.layout !== 'field' && !s.anchor; }),
+      R('y', 'Vertical', 0, 100, 1, '%', 'Centre of the dust in the section, when it isn’t following an image.', function (s) { return s.layout !== 'field' && !s.anchor; }),
+      SG('layer', 'Layer', [['back', 'Behind content'], ['front', 'In front']], 'In front floats over text and images, and never takes clicks.'),
+      G('Performance'),
+      SG('quality', 'Sharpness', [[.75, 'Battery'], [1, 'Balanced'], [1.5, 'Sharp']], 'Dust is soft, so Balanced looks the same as Sharp.'),
       SG('fps', 'Frame rate', [[24, '24'], [30, '30'], [60, '60']], 'Redraws per second.'),
     ],
   };
+  /* sections have their own settings group; image effects share "image" */
+  var SECTION = { aurora: 1, dust: 1 };
+  var DEFAULTS_OF = function (fx) { return fx === 'aurora' ? P.AURORA_DEFAULTS : fx === 'dust' ? P.DUST_DEFAULTS : P.IMAGE_DEFAULTS[fx]; };
 
   /* ── Elements on this page ── */
   function targets() {
@@ -126,9 +179,9 @@
     return path.join('>');
   }
   function labelOf(t) {
-    var el = t.el, kind = t.fx.aurora ? 'Section' : 'Image';
-    var preset = el.getAttribute('data-prism-aurora') || el.getAttribute('data-prism') || el.getAttribute('data-prism-statue') || el.getAttribute('data-prism-sparkle') || 'default';
-    var name = el.id ? '#' + el.id : t.fx.aurora ? ((el.querySelector('h1,h2,h3') || {}).textContent || el.className.split(' ')[0] || 'section') : (el.alt || (/^data:/.test(el.src || '') ? '' : (el.src || '').split('/').pop().split('?')[0]) || 'image');
+    var sec = t.fx.aurora || t.fx.dust, el = t.el, kind = sec ? 'Section' : 'Image';
+    var preset = el.getAttribute('data-prism-aurora') || el.getAttribute('data-prism-dust') || el.getAttribute('data-prism') || el.getAttribute('data-prism-statue') || el.getAttribute('data-prism-sparkle') || el.getAttribute('data-prism-reveal') || 'default';
+    var name = el.id ? '#' + el.id : sec ? ((el.querySelector('h1,h2,h3') || {}).textContent || el.className.split(' ')[0] || 'section') : (el.alt || (/^data:/.test(el.src || '') ? '' : (el.src || '').split('/').pop().split('?')[0]) || 'image');
     return { kind: kind, preset: preset || 'default', name: String(name).trim().slice(0, 36) };
   }
 
@@ -144,30 +197,39 @@
     if (fxName === 'aurora') return base;
     return (base[fxName] = base[fxName] || {});
   }
-  function presetOf(t, fx) { return fx === 'aurora' ? t.el.getAttribute('data-prism-aurora') : (t.el.getAttribute('data-prism-' + fx) || t.el.getAttribute('data-prism')); }
+  function presetOf(t, fx) { return SECTION[fx] ? t.el.getAttribute('data-prism-' + fx) : (t.el.getAttribute('data-prism-' + fx) || t.el.getAttribute('data-prism') || t.el.getAttribute('data-prism-reveal')); }
   /* recompute the element's settings with the tuner layer on top, and apply them live */
   function apply(t) {
     var layer = saved[idOf(t.el)] || {};
-    if (t.fx.aurora) t.fx.aurora.reconfigure(P.resolve('aurora', presetOf(t, 'aurora'), t.el, P.AURORA_DEFAULTS, [layer]));
+    if (t.fx.aurora) t.fx.aurora.reconfigure(P.resolve('aurora', presetOf(t, 'aurora'), t.el, P.AURORA_DEFAULTS, [strip(layer)]));
+    if (t.fx.dust) t.fx.dust.reconfigure(t.fx.dust.resolve([scopeLayers(layer).dust]));
     ['statue', 'sparkle'].forEach(function (n) { if (t.fx[n]) t.fx[n].reconfigure(P.resolve('image', presetOf(t, n), t.el, P.IMAGE_DEFAULTS, [layer])); });
   }
+  /* the dust layer lives beside an aurora's flat values, so keep it out of the aurora's */
+  function strip(layer) { var o = U.clone(layer || {}); delete o.dust; ['tablet', 'mobile'].forEach(function (b) { if (U.isObj(o[b])) delete o[b].dust; }); return o; }
+  function scopeLayers(layer) { layer = layer || {}; var o = { dust: U.clone(layer.dust || {}) }; ['tablet', 'mobile'].forEach(function (b) { if (U.isObj(layer[b]) && layer[b].dust && P.activeBreakpoints().indexOf(b) >= 0) U.merge(o.dust, layer[b].dust); }); return o; }
   function current(t, fx, key) { var s = t.fx[fx].settings; return key.indexOf('.') > 0 ? getPath(s, key) : s[key]; }
   /* the value this element would have without any tuner edits: its preset, its own options, the breakpoint */
   function baseline(t, fx, key) {
-    var cfg = fx === 'aurora' ? P.resolve('aurora', presetOf(t, 'aurora'), t.el, P.AURORA_DEFAULTS) : P.resolve('image', presetOf(t, fx), t.el, P.IMAGE_DEFAULTS)[fx];
-    var lib = fx === 'aurora' ? P.AURORA_DEFAULTS : P.IMAGE_DEFAULTS[fx];
+    var cfg = fx === 'aurora' ? P.resolve('aurora', presetOf(t, 'aurora'), t.el, P.AURORA_DEFAULTS) : fx === 'dust' ? t.fx.dust.resolve() : P.resolve('image', presetOf(t, fx), t.el, P.IMAGE_DEFAULTS)[fx];
+    var lib = DEFAULTS_OF(fx);
     var v = getPath(cfg || {}, key); return v === undefined ? getPath(lib, key) : v;
   }
-  function libDefault(fx, key) { return getPath(fx === 'aurora' ? P.AURORA_DEFAULTS : P.IMAGE_DEFAULTS[fx], key); }
+  function libDefault(fx, key) { return getPath(DEFAULTS_OF(fx), key); }
 
   /* ── Output ── */
   function inlineOf(t) { try { return JSON.parse(t.el.getAttribute('data-prism-options') || '{}'); } catch (e) { return {}; } }
   function prune(o) { for (var k in o) { if (U.isObj(o[k])) { prune(o[k]); if (!Object.keys(o[k]).length) delete o[k]; } } return o; }
-  function optionsFor(t) { return prune(U.merge(inlineOf(t), U.clone(saved[idOf(t.el)] || {}))); }
+  function optionsFor(t) {
+    if (tab === 'dust') { var d = {}; try { d = JSON.parse(t.el.getAttribute('data-prism-dust-options') || '{}'); } catch (e) {} return prune(U.merge(d, U.clone((saved[idOf(t.el)] || {}).dust || {}))); }
+    return prune(U.merge(inlineOf(t), t.fx.aurora ? strip(saved[idOf(t.el)]) : U.clone(saved[idOf(t.el)] || {})));
+  }
+  function attrFor() { return tab === 'dust' ? 'data-prism-dust-options' : 'data-prism-options'; }
   function settingsWith(t) {
-    var cfg = U.clone(P.config()), layer = saved[idOf(t.el)] || {}, kind = t.fx.aurora ? 'aurora' : 'image';
-    var name = presetOf(t, t.fx.aurora ? 'aurora' : 'statue') || presetOf(t, 'sparkle') || 'default';
-    cfg[kind] = cfg[kind] || {}; cfg[kind][name] = prune(U.merge(cfg[kind][name] || {}, U.clone(layer)));
+    var cfg = U.clone(P.config()), layer = saved[idOf(t.el)] || {}, kind = SECTION[tab] ? tab : 'image';
+    var name = SECTION[tab] ? (presetOf(t, tab) || 'default') : (presetOf(t, 'statue') || presetOf(t, 'sparkle') || 'default');
+    var add = tab === 'dust' ? (layer.dust || {}) : tab === 'aurora' ? strip(layer) : layer;
+    cfg[kind] = cfg[kind] || {}; cfg[kind][name] = prune(U.merge(cfg[kind][name] || {}, U.clone(add)));
     return { name: name, text: '<script type="application/json" data-prism-config>\n' + JSON.stringify(cfg, null, 2) + '\n<\/script>' };
   }
 
@@ -277,7 +339,7 @@
       h += '<div class="ptn-r' + (live ? '' : ' off') + '"><div class="t">' + lab + '<b data-edit="' + i + '" title="Tap to type a value">' + fmt(val, s.step) + s.u + '</b></div><input type="range" data-i="' + i + '" min="' + s.min + '" max="' + s.max + '" step="' + s.step + '" value="' + val + '" aria-label="' + s.l + '">' + (s.h ? '<p>' + s.h + '</p>' : '') + '</div>';
     });
     var opt = optionsFor(t), hasEdits = !!saved[idOf(t.el)], sw = settingsWith(t);
-    h += '<div class="ptn-out"><b style="font-size:13.5px">Only this element</b><p>In the Designer, set the custom attribute <code>data-prism-options</code> on this element to:</p><textarea readonly data-o="opt">' + esc(JSON.stringify(opt)) + '</textarea><div class="row"><button class="ptn-b pri" data-c="opt">Copy value</button><button class="ptn-b" data-a="reset">' + (hasEdits ? 'Undo all edits here' : 'No changes yet') + '</button></div></div>';
+    h += '<div class="ptn-out"><b style="font-size:13.5px">Only this element</b><p>In the Designer, set the custom attribute <code>' + attrFor() + '</code> on this element to:</p><textarea readonly data-o="opt">' + esc(JSON.stringify(opt)) + '</textarea><div class="row"><button class="ptn-b pri" data-c="opt">Copy value</button><button class="ptn-b" data-a="reset">' + (hasEdits ? 'Undo all edits here' : 'No changes yet') + '</button></div></div>';
     h += '<div class="ptn-out"><b style="font-size:13.5px">Every element using “' + esc(sw.name) + '”</b><p>Replace your head code with this, with these changes saved into the preset:</p><textarea readonly data-o="cfg">' + esc(sw.text) + '</textarea><div class="row"><button class="ptn-b pri" data-c="cfg">Copy head code</button></div></div>';
     h += '<p class="ptn-gn" style="margin-top:12px">Changes stay in this browser so you can reload. Visitors never see them until you paste them into Webflow.</p>';
     bd.innerHTML = h; bd.scrollTop = scroll;

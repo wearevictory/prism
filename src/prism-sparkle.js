@@ -1,10 +1,12 @@
 /* ════════════════════════════════════════════════════════════════════
    Prism · Sparkle
-   Four-point glints on the cutout's outline, floating dust, a soft halo
-   hugging the shape, bloom, and lens flares (the rays of coloured light).
+   Light that belongs to the image: four-point glints on the cutout's
+   outline, a soft halo hugging the shape, bloom, and the rays of coloured
+   light fanning out from it.
    Mark an image:  data-prism="liberty"           (statue + sparkle)
                    data-prism-sparkle="liberty"   (sparkle only)
    Built for transparent cutouts: glints follow the transparent edge.
+   Floating dust is not here: it belongs to the section (see prism-dust).
    ════════════════════════════════════════════════════════════════════ */
 (function () {
   var P = window.Prism;
@@ -13,10 +15,8 @@
 
   P.SPARKLE_DEFAULTS = {
     glints: 52, glintSize: 95, glintStr: 85,    // count 0–160, size px (at an 800px-tall image), strength 0–100
-    dust: 90, dustStr: 55, dustSpread: 1.15,    // count 0–1000, strength 0–100, how far it floats (× image size)
-    dustSize: 1,                                // size of each speck (× normal)
     glintRate: .45,                             // twinkle per second, capped at 1
-    warmth: 72,                                 // % of sparkles that are gold rather than icy
+    warmth: 72,                                 // % of glints that are gold rather than icy
     halo: 50,                                   // soft light hugging the outline, 0–100
     bloom: 45,                                  // glow at the light's source, 0–60
     flares: 6, flareStr: 42,                    // rays of coloured light: count 0–24, strength 0–100
@@ -25,7 +25,7 @@
     flareLen: 1, flareWidth: 1, flareSpin: .9,  // ray length and width (× normal), and turn speed (degrees per second)
     origin: { x: .5, y: .36 },                  // where the light comes from, on the image (0–1)
     fadeIn: 1200, seed: 8,
-    quality: 1.25,       // pixel density cap: dust and flares are soft, so they don't need full retina
+    quality: 1.25,       // pixel density cap: halo and rays are soft, so they don't need full retina
     maxPixels: 1500000,  // and the layer never draws more than this many pixels
     fps: 30,
   };
@@ -50,7 +50,7 @@
   var NONE = [0, 0, 0, 0];
 
   /* sprites are shared by every image */
-  var STAR_W = null, STAR_C = null, DUST_W = null, DUST_C = null, FLARES = {};
+  var STAR_W = null, STAR_C = null, FLARES = {};
   function starSprite(core, halo) {
     var N = 160, c = U.cv(N, N), x = c.getContext('2d'), img = x.createImageData(N, N), d = img.data, m = N / 2;
     for (var j = 0; j < N; j++) for (var i = 0; i < N; i++) {
@@ -92,14 +92,6 @@
     if (STAR_W) return;
     STAR_W = starSprite([1, .98, .93], U.oklch(.76, .13, 60));
     STAR_C = starSprite([.95, .97, 1], U.oklch(.68, .13, 250));
-    DUST_W = dustSprite([1, .98, .93], U.oklch(.76, .13, 60));
-    DUST_C = dustSprite([.95, .97, 1], U.oklch(.68, .13, 250));
-  }
-  /* dust uses its own tiny sprite: drawing hundreds of small dots from a small source is far cheaper */
-  function dustSprite(core, halo) {
-    var N = 24, c = U.cv(N, N), x = c.getContext('2d'), m = N / 2, g = x.createRadialGradient(m, m, 0, m, m, m);
-    g.addColorStop(0, U.rgba(core, 1)); g.addColorStop(.18, U.rgba(core, .9)); g.addColorStop(.45, U.rgba(halo, .35)); g.addColorStop(1, U.rgba(halo, 0));
-    x.fillStyle = g; x.fillRect(0, 0, N, N); return c;
   }
   /* ray sprites for a palette, turned and saturated as asked; shared by every image using the same colours */
   function flareSprites(pal, hue, sat) {
@@ -111,10 +103,11 @@
   }
 
   function mount(img, settings) {
-    var preset = function () { return img.getAttribute('data-prism-sparkle') || img.getAttribute('data-prism'); };
+    var preset = function () { return img.getAttribute('data-prism-sparkle') || img.getAttribute('data-prism') || img.getAttribute('data-prism-reveal'); };
     var manual = !!settings, cfg = settings || P.resolve('image', preset(), img, P.IMAGE_DEFAULTS);
     if (!settings && !img.hasAttribute('data-prism-sparkle') && (cfg.effects || []).indexOf('sparkle') < 0) return null;
     var S = U.merge(U.clone(P.SPARKLE_DEFAULTS), cfg.sparkle || {});
+    if (cfg.sparkle && cfg.sparkle.dust > 0 && !mount.warned) { mount.warned = 1; U.warn('dust moved to the section in v3: add data-prism-dust to the section and move the dust settings to a "dust" preset. The image\'s dust settings are ignored.'); }
     sprites();
     var ov = P.overlay(img, cfg);
     var wrap = document.createElement('div'), front = document.createElement('canvas');
@@ -123,13 +116,11 @@
     front.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;mix-blend-mode:screen';
     wrap.appendChild(front);
     var fx = front.getContext('2d'), dpr = U.dpr(S.quality), acc = 0;
-    var t = 0, running = false, EDGES = [], HALO = null, HM = .2, GL = [], DU = [], FL = [], FS = null;
-    var MAX_DUST = 1000;
+    var t = 0, running = false, EDGES = [], HALO = null, HM = .2, GL = [], FL = [], FS = null;
 
     function seed() {
       var r = U.rng(S.seed * 7 + 13);
       GL = Array.from({ length: 160 }, function () { return { e: r(), ph: r(), sp: .6 + r() * .8, s: r(), rot: (r() - .5) * .5, warm: r(), a: r() * Math.PI * 2, d: .15 + r() * .5 }; });
-      DU = Array.from({ length: MAX_DUST }, function () { return { a: r() * Math.PI * 2, d: Math.pow(r(), .6), ph: r(), sp: .4 + r() * .9, s: .3 + r() * .7, warm: r() }; });
       var rf = U.rng(S.seed * 7 + 8);
       FL = Array.from({ length: Math.min(24, Math.round(S.flares)) }, function () { return { a: rf() * Math.PI * 2, len: .45 + rf() * .7, w: 5 + rf() * 12, s: .4 + rf() * .6, t: rf(), v: Math.floor(rf() * 4) }; });
       FS = flareSprites(S.flarePal, S.flareHue, S.flareSat);
@@ -164,7 +155,7 @@
     function resize() {
       dpr = Math.max(.5, Math.min(U.dpr(S.quality), P.perf.scale([2, 1.25, 1]), Math.sqrt(S.maxPixels / Math.max(1, ov.W * ov.H))));
       front.width = Math.round(ov.W * dpr); front.height = Math.round(ov.H * dpr);
-      /* feather every edge of the layer, so flares, halo and dust fade out instead of
+      /* feather every edge of the layer, so flares and halo fade out instead of
          stopping at a hard line where the layer ends */
       var f = Math.max(8, Math.round(ov.pad * .9)) + 'px';
       var m = 'linear-gradient(to right,transparent,#000 ' + f + ',#000 calc(100% - ' + f + '),transparent),linear-gradient(to bottom,transparent,#000 ' + f + ',#000 calc(100% - ' + f + '),transparent)';
@@ -216,14 +207,6 @@
         else { x = ox + Math.cos(G.a) * G.d * Ui; y = oy + Math.sin(G.a) * G.d * Ui; }
         put(G.warm < S.warmth / 100 ? STAR_W : STAR_C, x, y, S.glintSize * k * (.45 + G.s * .9) * (.55 + .45 * tw) * 2, G.rot, gs * ia * (.15 + .85 * tw));
       }
-      /* dust floating in the glow */
-      var nD = Math.min(DU.length, Math.round(S.dust * dens)), ds = S.dustStr / 100;
-      for (var d = 0; d < nD && ds > .003; d++) {
-        var Pd = DU[d], ib = U.easeOut(clamp((t - e0 - rr * (.6 + Pd.ph)) / rr, 0, 1)); if (ib <= 0) continue;
-        var tw2 = .5 - .5 * Math.cos(2 * Math.PI * (t * rate * .7 * Pd.sp + Pd.ph));
-        var dist = Pd.d * Ui * S.dustSpread * 2 * (1 + .04 * Math.sin(t * .2 + Pd.ph * 6));
-        put(Pd.warm < S.warmth / 100 ? DUST_W : DUST_C, ox + Math.cos(Pd.a) * dist, oy + Math.sin(Pd.a) * dist, (4 + Pd.s * 9) * k * S.dustSize * (.6 + .4 * tw2), 0, ds * ib * Pd.s * (.25 + .75 * tw2));
-      }
     }
     var layer = {
       el: wrap, resize: resize,
@@ -256,5 +239,5 @@
   }
 
   P.sparkle = { mount: mount, defaults: P.SPARKLE_DEFAULTS };
-  P.register('sparkle', { selector: 'img[data-prism], img[data-prism-sparkle]', mount: function (el, s) { return mount(el, s); } });
+  P.register('sparkle', { selector: 'img[data-prism], img[data-prism-sparkle], img[data-prism-reveal]', mount: function (el, s) { return mount(el, s); } });
 })();

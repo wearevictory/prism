@@ -3,13 +3,14 @@
    Shared by every module: helpers, settings (with breakpoints), one
    animation loop, adaptive quality, the overlay that sits on top of an
    image, start-up, and the on-page tuner loader.
-   Load this first, then any of: prism-aurora, prism-statue, prism-sparkle.
+   Load this first, then any of: prism-aurora, prism-statue, prism-sparkle,
+   prism-dust. (prism.min.js bundles all of them.)
    ════════════════════════════════════════════════════════════════════ */
 (function () {
   if (window.Prism && window.Prism.core) return;
   var P = window.Prism = window.Prism || {};
   P.core = true;
-  P.version = '2.4.0';
+  P.version = '3.0.0';
   var SCRIPT = (document.currentScript && document.currentScript.src) || '';
 
   /* ── Helpers ─────────────────────────────────────────────────────── */
@@ -156,6 +157,7 @@
 
   /* ── Image overlay ───────────────────────────────────────────────────
      Statue and Sparkle draw into one layer that sits exactly on top of the image.
+     (Dust never does: it belongs to the section.)
      The image itself is never moved or rewrapped, so Webflow layout and
      Interactions keep working: the layer follows the image's position, size
      and opacity every frame while it is on screen. */
